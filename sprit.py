@@ -326,9 +326,16 @@ def draw_fuel_bar(level, avg_consumption):
 
     total_capacity = fuel_capacity + reserve_liters
     reserve_height = int(height * (reserve_liters / total_capacity))
-    main_height = int(height * (min(level, fuel_capacity) / total_capacity))
+    level = max(0, min(level, total_capacity))
+
+    total_height = int(height * (level / total_capacity))
+    reserve_height = int(height * (reserve_liters / total_capacity))
+    main_height = max(0, total_height - reserve_height)
+
+    y0_main = height - total_height
     y0_reserve = height - reserve_height
-    y0_main = y0_reserve - main_height
+
+
 
     color_reserve = "orange"
     if level > reserve_liters:
