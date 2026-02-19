@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import tkinter as tk
+from tkinter import messagebox
 from gpiozero import Button
 import threading
 import time
 import gps
 import json
 import os
+import subprocess
+import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import glob
@@ -26,11 +29,64 @@ K_FACTOR = 40000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 
+# --- Version & Update ---
+VERSION = "1.17"
+# URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
+VERSION_URL = ""
+UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
+
 # --- Pfade ---
 TRIP_FILE = "/home/pi/trip_data.json"
 CONFIG_FILE = "/home/pi/dashboard_config.json"
 TRIP_BACKUP_FILE = "/home/pi/trip_data.bak.json"
 TRIP_TMP_FILE = "/home/pi/trip_data.tmp"
+
+# --- Bildschirmhelligkeit (Raspberry Pi 7\" DSI / Backlight) ---
+BACKLIGHT_PATH = None
+BACKLIGHT_MAX = 255
+
+def _init_backlight():
+    """Findet das Backlight-Device unter /sys/class/backlight/ (z.B. offizielles Pi-Display)."""
+    global BACKLIGHT_PATH, BACKLIGHT_MAX
+    base = "/sys/class/backlight"
+    if not os.path.isdir(base):
+        return
+    for name in os.listdir(base):
+        path = os.path.join(base, name)
+        max_file = os.path.join(path, "max_brightness")
+        bright_file = os.path.join(path, "brightness")
+        if os.path.isfile(max_file) and os.path.isfile(bright_file):
+            try:
+                with open(max_file, "r") as f:
+                    BACKLIGHT_MAX = max(1, int(f.read().strip()))
+                BACKLIGHT_PATH = bright_file
+                logging.info(f"Backlight gefunden: {bright_file}, max={BACKLIGHT_MAX}")
+                return
+            except (ValueError, OSError):
+                continue
+
+def set_brightness(percent):
+    """Helligkeit setzen (0–100). Nur wenn Backlight verfügbar."""
+    if BACKLIGHT_PATH is None:
+        return
+    percent = max(0, min(100, int(percent)))
+    value = int(BACKLIGHT_MAX * percent / 100)
+    try:
+        with open(BACKLIGHT_PATH, "w") as f:
+            f.write(str(value))
+    except OSError as e:
+        logging.error(f"Helligkeit setzen fehlgeschlagen: {e}")
+
+def get_brightness():
+    """Aktuelle Helligkeit in Prozent (0–100) lesen. Bei Fehler None."""
+    if BACKLIGHT_PATH is None:
+        return None
+    try:
+        with open(BACKLIGHT_PATH, "r") as f:
+            val = int(f.read().strip())
+        return max(0, min(100, int(100 * val / BACKLIGHT_MAX)))
+    except (ValueError, OSError):
+        return None
 
 
 # --- Globale Variablen ---
@@ -41,6 +97,7 @@ sat_seen = 0
 sat_used = 0
 gps_fix = False
 temp_celsius = 0.0
+temp_oil_celsius = None
 volt_value = None
 current_l100 = 0.0
 
@@ -87,7 +144,9 @@ default_config = {
     "show_volt": True,
     "show_sat": True,
     "show_trip_time": True,
-    "show_day_time": True
+    "show_day_time": True,
+    "temp_swapped": False,
+    "brightness": 80,
 }
 
 def load_config():
@@ -98,13 +157,46 @@ def load_config():
                 if k not in cfg:
                     cfg[k] = v
             return cfg
-        except:
+        except Exception:
             return default_config.copy()
     return default_config.copy()
 
 def save_config():
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(config, f)
+
+def check_latest_version():
+    """Liest die neueste Version von VERSION_URL. Rückgabe: Versionsstring oder None."""
+    if not (VERSION_URL and VERSION_URL.strip()):
+        return None
+    try:
+        req = urllib.request.Request(VERSION_URL, headers={"User-Agent": "SpritDashboard/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            version = r.read().decode("utf-8", errors="ignore").strip()
+            return version if version else None
+    except Exception as e:
+        logging.debug(f"Versionsprüfung fehlgeschlagen: {e}")
+        return None
+
+def run_update():
+    """Startet den Updater (sudo). Dashboard wird vom Updater beendet und neu gestartet."""
+    if not os.path.isfile(UPDATER_SCRIPT):
+        messagebox.showerror("Update", f"Updater nicht gefunden:\n{UPDATER_SCRIPT}")
+        return
+    try:
+        subprocess.Popen(
+            ["sudo", "python3", UPDATER_SCRIPT],
+            cwd=os.path.dirname(UPDATER_SCRIPT),
+            start_new_session=True,
+        )
+        messagebox.showinfo("Update", "Update wird durchgeführt.\nDas Dashboard startet in Kürze neu.")
+        save_data()
+        save_config()
+        root.destroy()
+        os._exit(0)
+    except Exception as e:
+        messagebox.showerror("Update", f"Updater starten fehlgeschlagen:\n{e}")
+        logging.error(f"Update starten: {e}")
 
 config = load_config()
 
@@ -137,6 +229,7 @@ def read_gps():
         return
 
     while True:
+        lat, lon = None, None
         try:
             report = session.next()
             cls = report.get("class", None) if isinstance(report, dict) else getattr(report, "class", None)
@@ -209,6 +302,7 @@ def load_data():
             return json.load(f)
 
     data = None
+    loaded_from_backup = False
 
     # 1. Hauptdatei versuchen
     try:
@@ -217,16 +311,17 @@ def load_data():
     except Exception as e:
         logging.error(f"Hauptdatei defekt: {e}")
 
-    # 2. Backup versuchen
+    # 2. Backup versuchen, falls Hauptdatei fehlgeschlagen oder fehlt
     if data is None:
         try:
             if os.path.exists(TRIP_BACKUP_FILE):
-                logging.warning("Backup wird geladen")
+                logging.warning("Backup wird geladen (Hauptdatei fehlt oder beschädigt)")
                 data = load_from(TRIP_BACKUP_FILE)
+                loaded_from_backup = True
         except Exception as e:
             logging.error(f"Backup defekt: {e}")
 
-    # 3. Wenn alles schiefgeht
+    # 3. Wenn beide fehlschlagen: Reset
     if data is None:
         logging.error("Keine gueltigen Daten gefunden, Reset")
         reset_trip()
@@ -246,22 +341,48 @@ def load_data():
     trip_time = data.get("trip_time", 0.0)
     trip_time_tag = data.get("trip_time_tag", 0.0)
 
+    # 5. Wenn aus Backup geladen: Hauptdatei sofort reparieren (gültige Daten zurückschreiben)
+    if loaded_from_backup:
+        try:
+            save_data()
+            logging.info("Hauptdatei aus Backup wiederhergestellt")
+        except Exception as e:
+            logging.error(f"Reparatur der Hauptdatei fehlgeschlagen: {e}")
 
-# --- Temperatur DS18B20 ---
-def read_temp():
-    global temp_celsius
+
+# --- Temperatur DS18B20 (Aussen + Öl) ---
+def _read_one_temp(device_file):
+    """Liest einen DS18B20-Sensor, gibt Temperatur oder None zurück."""
     try:
-        base_dir = '/sys/bus/w1/devices/'
-        device_folder = glob.glob(base_dir + '28-*')[0]
-        device_file = device_folder + '/w1_slave'
         with open(device_file, 'r') as f:
             lines = f.readlines()
         if lines[0].strip()[-3:] == 'YES':
             equals_pos = lines[1].find('t=')
             if equals_pos != -1:
-                temp_celsius = float(lines[1][equals_pos+2:]) / 1000.0
+                return float(lines[1][equals_pos+2:]) / 1000.0
+    except Exception:
+        pass
+    return None
+
+def read_temp():
+    global temp_celsius, temp_oil_celsius
+    base_dir = '/sys/bus/w1/devices/'
+    try:
+        device_folders = sorted(glob.glob(base_dir + '28-*'))
+        if not device_folders:
+            temp_celsius = None
+            temp_oil_celsius = None
+            return
+        # Erster Sensor = Aussen
+        temp_celsius = _read_one_temp(device_folders[0] + '/w1_slave')
+        # Zweiter Sensor = Öl (falls vorhanden)
+        if len(device_folders) >= 2:
+            temp_oil_celsius = _read_one_temp(device_folders[1] + '/w1_slave')
+        else:
+            temp_oil_celsius = None
     except Exception as e:
         temp_celsius = None
+        temp_oil_celsius = None
         logging.error(f"Fehler beim Lesen der Temperatur: {e}")
 
 # --- INA219 Setup ---
@@ -285,7 +406,7 @@ root.config(cursor="none")
 frame_dashboard = tk.Frame(root, bg="grey20")
 frame_dashboard.pack(expand=True, fill="both")
 
-version_label = tk.Label(frame_dashboard, text="V1.04", font=("Arial", 10), fg="white", bg="grey20")
+version_label = tk.Label(frame_dashboard, text=f"V{VERSION}", font=("Arial", 10), fg="white", bg="grey20")
 version_label.place(x=5, y=5)
 
 # --- Reset Funktionen ---
@@ -355,17 +476,72 @@ def toggle_block(key, var):
 def open_config():
     cfg_win = tk.Toplevel(root)
     cfg_win.title("Dashboard Config")
+
+    # Zwei Spalten nebeneinander
+    left_col = tk.Frame(cfg_win, padx=10, pady=5)
+    left_col.pack(side="left", fill="y")
+    right_col = tk.Frame(cfg_win, padx=10, pady=5)
+    right_col.pack(side="left", fill="y")
+
+    # --- Links: Checkboxen ---
     for key in default_config.keys():
+        if not isinstance(default_config[key], bool):
+            continue
         var = tk.BooleanVar(value=config.get(key, default_config[key]))
-        cb = tk.Checkbutton(cfg_win, text=key.replace("show_", "").replace("_", " ").title(),
+        cb = tk.Checkbutton(left_col, text=key.replace("show_", "").replace("_", " ").title(),
                             variable=var, command=lambda k=key, v=var: toggle_block(k, v))
         cb.pack(anchor="w")
+
+    # --- Rechts: Version, Update, Helligkeit ---
+    version_info_label = tk.Label(right_col, text=f"Aktuell: V{VERSION}  |  Neueste: …", font=("Arial", 10))
+    version_info_label.pack(anchor="w")
+
+    def fetch_version_in_thread():
+        latest = check_latest_version()
+        def update():
+            if latest is None:
+                version_info_label.config(text=f"Aktuell: V{VERSION}  |  Neueste: —")
+            else:
+                version_info_label.config(text=f"Aktuell: V{VERSION}  |  Neueste: {latest}")
+        try:
+            cfg_win.after(0, update)
+        except tk.TclError:
+            pass
+
+    threading.Thread(target=fetch_version_in_thread, daemon=True).start()
+
+    btn_update = tk.Button(right_col, text="Jetzt aktualisieren", font=("Arial", 11, "bold"), bg="green", fg="white",
+                           command=run_update)
+    btn_update.pack(pady=5)
+
+    if BACKLIGHT_PATH is not None:
+        sep_hl = tk.Frame(right_col, height=2, bg="grey40")
+        sep_hl.pack(fill="x", pady=8)
+        hl_frame = tk.Frame(right_col)
+        hl_frame.pack(fill="x", pady=2)
+        tk.Label(hl_frame, text="Helligkeit:", font=("Arial", 10)).pack(side="left", padx=(0, 8))
+        current_hl = config.get("brightness", 80)
+        hl_label = tk.Label(hl_frame, text=f"{current_hl} %", font=("Arial", 10), width=5)
+        hl_label.pack(side="right")
+        def on_brightness_change(val):
+            pct = int(float(val))
+            set_brightness(pct)
+            config["brightness"] = pct
+            save_config()
+            hl_label.config(text=f"{pct} %")
+        hl_scale = tk.Scale(right_col, from_=0, to=100, orient="horizontal", length=200,
+                            command=on_brightness_change, showvalue=False)
+        hl_scale.set(current_hl)
+        hl_scale.pack(fill="x", pady=2)
 
 btn_config = tk.Button(middle_frame, text="Config", font=("Arial", 12, "bold"), bg="blue", command=open_config)
 btn_config.pack(pady=5, padx=5)
 
 btn_reset_trip = tk.Button(bottom_frame, text="Reset", font=("Arial", 12, "bold"), bg="red", command=reset_trip)
 btn_reset_trip.pack(pady=5, padx=5)
+
+sat_label = tk.Label(bottom_frame, text="Sat : 0/0", font=("Arial", 14), fg="yellow", bg="grey20")
+sat_label.pack(pady=5, padx=5)
 
 # --- Labels im center_frame ---
 speed_label = tk.Label(center_frame, text="Speed: -- km/h", font=("Arial", 22), fg="cyan", bg="grey20")
@@ -401,12 +577,19 @@ trip_time_label.pack(side="left", padx=10)
 distance_label = tk.Label(center_frame, text="Trip km: 0.00 / 0.00", font=("Arial", 16), fg="white", bg="grey20")
 distance_label.grid(row=6, column=0, pady=2)
 
-temp_label = tk.Label(center_frame, text="Aussentemperatur: -- °C", font=("Arial", 15), fg="deepskyblue", bg="grey20")
+def on_temp_click():
+    """Klick auf Temperaturzeile: Anzeige Aussen ↔ Öl tauschen (falls Sensoren vertauscht erkannt)."""
+    config["temp_swapped"] = not config.get("temp_swapped", False)
+    save_config()
+
+temp_label = tk.Button(
+    center_frame, text="Aussen: --  / Öl: --",
+    font=("Arial", 15), fg="deepskyblue", bg="grey20",
+    relief="flat", bd=0, highlightthickness=0,
+    activebackground="grey20", activeforeground="deepskyblue",
+    command=on_temp_click
+)
 temp_label.grid(row=7, column=0, pady=2)
-
-sat_label = tk.Label(center_frame, text="Satelliten: 0 used / 0 seen", font=("Arial", 14), fg="yellow", bg="grey20")
-sat_label.grid(row=8, column=0, pady=2)
-
 
 # --- Fuel Canvas ---
 date_label = tk.Label(right_frame, text="", font=("Arial", 14), fg="white", bg="black")
@@ -496,14 +679,12 @@ def update_visibility():
         ("show_avg", avg_label),
         ("show_trip", distance_label),
         ("show_temp", temp_label),
-        ("show_sat", sat_label),
     ]
 
     pack_widgets = [
         ("show_lh", lh_volt_frame),
         ("show_trip_time", trip_time_frame),
     ]
-
 
     # grid-Widgets
     for key, widget in grid_widgets:
@@ -519,6 +700,12 @@ def update_visibility():
         else:
             widget.grid_remove()
 
+    # Sat-Anzeige links (pack)
+    if config.get("show_sat", True):
+        sat_label.pack(pady=5, padx=5)
+    else:
+        sat_label.pack_forget()
+
 
 def format_time(seconds):
     seconds = int(seconds)
@@ -527,6 +714,12 @@ def format_time(seconds):
     return f"{h:02d}:{m:02d}"
 
 def update_gui():
+    try:
+        _update_gui_impl()
+    except tk.TclError:
+        pass  # Fenster bereits geschlossen
+
+def _update_gui_impl():
     speed_label.config(text=f"Speed: {speed:.1f} km/h" if gps_fix else "Speed: -- km/h")
     avg_speed_label.config(text=f"Ø km/h: {avg_speed:.1f} / {avg_speed_tag:.1f}")
     l100_label.config(text=f"Verbrauch: {current_l100:.2f} l/100km")
@@ -535,13 +728,20 @@ def update_gui():
     lh_label.config(text=f"l/h: {flow_rate:.2f}")
 
     trip_time_label.config(
-        text=f"Trip: {format_time(trip_time)} | {format_time(trip_time_tag)}"
+        text=f"Trip Time: {format_time(trip_time)} | {format_time(trip_time_tag)}"
     )
 
     distance_label.config(text=f"Trip km: {trip_distance:.2f} / {trip_distance_tag:.2f}")
-    temp_label.config(text=f"Aussentemperatur: {temp_celsius:.1f} °C" if temp_celsius is not None else "Aussentemperatur: --")
+    # Sensor 1 = erster 28-*, Sensor 2 = zweiter 28-*; bei temp_swapped Anzeige tauschen
+    val1 = f"{temp_celsius:.1f}°C" if temp_celsius is not None else "--"
+    val2 = f"{temp_oil_celsius:.1f}°C" if temp_oil_celsius is not None else "--"
+    if config.get("temp_swapped", False):
+        aussen_str, oil_str = val2, val1
+    else:
+        aussen_str, oil_str = val1, val2
+    temp_label.config(text=f"Aussen: {aussen_str}  / Öl: {oil_str}")
     volt_label.config(text=f"Volt: {volt_value:.2f} V" if volt_value is not None else "Volt: --")
-    sat_label.config(text=f"Satelliten: {sat_used} used / {sat_seen} seen")
+    sat_label.config(text=f"Sat : {sat_used}/{sat_seen}")
     draw_fuel_bar(fuel_liters, avg_consumption)
 
 def update_dashboard():
@@ -564,6 +764,8 @@ def update_dashboard():
         read_temp()
         now = time.time()
         dt = now - last_time
+        if dt <= 0:
+            dt = 1.0
         last_time = now
 
         with lock:
@@ -670,10 +872,13 @@ def update_dashboard():
             save_counter = 0
 
 # --- Start ---
+_init_backlight()
 load_data()
 draw_fuel_bar(fuel_liters, avg_consumption)
 update_visibility()
 update_time()
+if BACKLIGHT_PATH is not None:
+    set_brightness(config.get("brightness", 80))
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
