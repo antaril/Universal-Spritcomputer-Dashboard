@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
-from gpiozero import Button
+from gpiozero import Button, PWMOutputDevice
 import threading
 import time
 import gps
@@ -30,9 +30,9 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.17"
+VERSION = "1.18"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
-VERSION_URL = ""
+VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
 
 # --- Pfade ---
@@ -41,52 +41,75 @@ CONFIG_FILE = "/home/pi/dashboard_config.json"
 TRIP_BACKUP_FILE = "/home/pi/trip_data.bak.json"
 TRIP_TMP_FILE = "/home/pi/trip_data.tmp"
 
-# --- Bildschirmhelligkeit (Raspberry Pi 7\" DSI / Backlight) ---
+# --- Bildschirmhelligkeit (Raspberry Pi DSI / SPI-Display) ---
 BACKLIGHT_PATH = None
 BACKLIGHT_MAX = 255
+BACKLIGHT_PWM = None
+BACKLIGHT_PWM_PIN = 18  # GPIO 18 (PWM0) - häufig für SPI-Displays. Falls anders, hier ändern.
 
 def _init_backlight():
-    """Findet das Backlight-Device unter /sys/class/backlight/ (z.B. offizielles Pi-Display)."""
-    global BACKLIGHT_PATH, BACKLIGHT_MAX
+    """Findet Backlight: zuerst /sys/class/backlight/, sonst GPIO-PWM (für SPI-Displays)."""
+    global BACKLIGHT_PATH, BACKLIGHT_MAX, BACKLIGHT_PWM
+    
+    # 1. Standard Linux Backlight-Interface (offizielles Pi-Display)
     base = "/sys/class/backlight"
-    if not os.path.isdir(base):
-        return
-    for name in os.listdir(base):
-        path = os.path.join(base, name)
-        max_file = os.path.join(path, "max_brightness")
-        bright_file = os.path.join(path, "brightness")
-        if os.path.isfile(max_file) and os.path.isfile(bright_file):
-            try:
-                with open(max_file, "r") as f:
-                    BACKLIGHT_MAX = max(1, int(f.read().strip()))
-                BACKLIGHT_PATH = bright_file
-                logging.info(f"Backlight gefunden: {bright_file}, max={BACKLIGHT_MAX}")
-                return
-            except (ValueError, OSError):
-                continue
+    if os.path.isdir(base):
+        for name in os.listdir(base):
+            path = os.path.join(base, name)
+            max_file = os.path.join(path, "max_brightness")
+            bright_file = os.path.join(path, "brightness")
+            if os.path.isfile(max_file) and os.path.isfile(bright_file):
+                try:
+                    with open(max_file, "r") as f:
+                        BACKLIGHT_MAX = max(1, int(f.read().strip()))
+                    BACKLIGHT_PATH = bright_file
+                    logging.info(f"Backlight gefunden (sysfs): {bright_file}, max={BACKLIGHT_MAX}")
+                    return
+                except (ValueError, OSError):
+                    continue
+    
+    # 2. GPIO-PWM für SPI-Displays (z.B. 3.5" TFT)
+    try:
+        BACKLIGHT_PWM = PWMOutputDevice(BACKLIGHT_PWM_PIN, frequency=1000, initial_value=0.8)
+        BACKLIGHT_MAX = 100  # PWM verwendet 0.0-1.0, wir mappen auf 0-100%
+        logging.info(f"Backlight gefunden (GPIO-PWM Pin {BACKLIGHT_PWM_PIN})")
+    except Exception as e:
+        logging.warning(f"GPIO-PWM Backlight nicht verfügbar (Pin {BACKLIGHT_PWM_PIN}): {e}")
 
 def set_brightness(percent):
-    """Helligkeit setzen (0–100). Nur wenn Backlight verfügbar."""
-    if BACKLIGHT_PATH is None:
-        return
+    """Helligkeit setzen (0–100). Unterstützt sysfs und GPIO-PWM."""
     percent = max(0, min(100, int(percent)))
-    value = int(BACKLIGHT_MAX * percent / 100)
-    try:
-        with open(BACKLIGHT_PATH, "w") as f:
-            f.write(str(value))
-    except OSError as e:
-        logging.error(f"Helligkeit setzen fehlgeschlagen: {e}")
+    
+    if BACKLIGHT_PATH is not None:
+        # Sysfs-Interface (offizielles Pi-Display)
+        value = int(BACKLIGHT_MAX * percent / 100)
+        try:
+            with open(BACKLIGHT_PATH, "w") as f:
+                f.write(str(value))
+        except OSError as e:
+            logging.error(f"Helligkeit setzen fehlgeschlagen: {e}")
+    elif BACKLIGHT_PWM is not None:
+        # GPIO-PWM (SPI-Display)
+        try:
+            BACKLIGHT_PWM.value = percent / 100.0  # PWM: 0.0-1.0
+        except Exception as e:
+            logging.error(f"PWM-Helligkeit setzen fehlgeschlagen: {e}")
 
 def get_brightness():
     """Aktuelle Helligkeit in Prozent (0–100) lesen. Bei Fehler None."""
-    if BACKLIGHT_PATH is None:
-        return None
-    try:
-        with open(BACKLIGHT_PATH, "r") as f:
-            val = int(f.read().strip())
-        return max(0, min(100, int(100 * val / BACKLIGHT_MAX)))
-    except (ValueError, OSError):
-        return None
+    if BACKLIGHT_PATH is not None:
+        try:
+            with open(BACKLIGHT_PATH, "r") as f:
+                val = int(f.read().strip())
+            return max(0, min(100, int(100 * val / BACKLIGHT_MAX)))
+        except (ValueError, OSError):
+            return None
+    elif BACKLIGHT_PWM is not None:
+        try:
+            return int(BACKLIGHT_PWM.value * 100)
+        except Exception:
+            return None
+    return None
 
 
 # --- Globale Variablen ---
@@ -514,7 +537,7 @@ def open_config():
                            command=run_update)
     btn_update.pack(pady=5)
 
-    if BACKLIGHT_PATH is not None:
+    if BACKLIGHT_PATH is not None or BACKLIGHT_PWM is not None:
         sep_hl = tk.Frame(right_col, height=2, bg="grey40")
         sep_hl.pack(fill="x", pady=8)
         hl_frame = tk.Frame(right_col)
