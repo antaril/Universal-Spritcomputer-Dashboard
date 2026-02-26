@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.21"
+VERSION = "1.22"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -700,7 +700,16 @@ middle_frame.pack(expand=True)
 bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 bottom_frame.pack(side="bottom", fill="x", pady=5)
 
-btn_day_reset = tk.Button(top_frame, text="Dayreset", font=("Arial", 12, "bold"), bg="orange", command=day_reset)
+btn_day_reset = tk.Button(
+    top_frame,
+    text="Dayreset",
+    font=("Arial", 12, "bold"),
+    bg="orange",
+    fg="black",
+    activebackground="orange",
+    activeforeground="black",
+    highlightthickness=0,
+)
 btn_day_reset.pack(pady=5, padx=5)
 
 def toggle_block(key, var):
@@ -800,10 +809,28 @@ def open_config():
 
     # Helligkeitseinstellung wurde entfernt, da sie hardwareseitig nicht zuverlässig funktioniert.
 
-btn_config = tk.Button(middle_frame, text="Config", font=("Arial", 12, "bold"), bg="blue", command=open_config)
+btn_config = tk.Button(
+    middle_frame,
+    text="Config",
+    font=("Arial", 12, "bold"),
+    bg="blue",
+    fg="white",
+    activebackground="blue",
+    activeforeground="white",
+    highlightthickness=0,
+)
 btn_config.pack(pady=5, padx=5)
 
-btn_reset_trip = tk.Button(bottom_frame, text="Reset", font=("Arial", 12, "bold"), bg="red", command=reset_trip)
+btn_reset_trip = tk.Button(
+    bottom_frame,
+    text="Reset",
+    font=("Arial", 12, "bold"),
+    bg="red",
+    fg="white",
+    activebackground="red",
+    activeforeground="white",
+    highlightthickness=0,
+)
 btn_reset_trip.pack(pady=5, padx=5)
 
 sat_label = tk.Label(bottom_frame, text="Sat : 0/0", font=("Arial", 14), fg=theme["fg_warning"], bg=theme["bg_side"])
