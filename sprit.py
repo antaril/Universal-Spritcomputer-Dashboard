@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.23"
+VERSION = "1.24"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -595,9 +595,10 @@ def get_theme_colors():
     """Liefert die aktuell aktiven Farbcodes für Tag-/Nachtmodus."""
     if config.get("night_mode", False):
         return {
-            "bg_root": "#05050A",
-            "bg_panel": "#101018",
-            "bg_side": "#080810",
+            # Hintergrund bleibt immer schwarz (blendarm)
+            "bg_root": "black",
+            "bg_panel": "black",
+            "bg_side": "black",
             "fg_text": "#E0E6FF",
             "fg_accent": "#7FC8FF",
             "fg_warning": "#FFC857",
@@ -615,9 +616,10 @@ def get_theme_colors():
         }
     else:
         return {
+            # Hintergrund bleibt immer schwarz (blendarm)
             "bg_root": "black",
-            "bg_panel": "grey20",
-            "bg_side": "grey20",
+            "bg_panel": "black",
+            "bg_side": "black",
             "fg_text": "white",
             "fg_accent": "deepskyblue",
             "fg_warning": "yellow",
@@ -1265,6 +1267,48 @@ def apply_theme():
     trip_time_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     distance_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     temp_label.configure(bg=theme["bg_panel"], activebackground=theme["bg_panel"])
+
+    # Buttons je nach Modus etwas abdunkeln, ohne Hintergrund zu ändern
+    if config.get("night_mode", False):
+        btn_day_reset.configure(
+            bg="#8B5A00",
+            fg="white",
+            activebackground="#8B5A00",
+            activeforeground="white",
+        )
+        btn_config.configure(
+            bg="#1E3A5F",
+            fg="white",
+            activebackground="#1E3A5F",
+            activeforeground="white",
+        )
+        btn_reset_trip.configure(
+            bg="#7A1E1E",
+            fg="white",
+            activebackground="#7A1E1E",
+            activeforeground="white",
+        )
+    else:
+        btn_day_reset.configure(
+            bg="orange",
+            fg="black",
+            activebackground="orange",
+            activeforeground="black",
+        )
+        btn_config.configure(
+            bg="blue",
+            fg="white",
+            activebackground="blue",
+            activeforeground="white",
+        )
+        btn_reset_trip.configure(
+            bg="red",
+            fg="white",
+            activebackground="red",
+            activeforeground="white",
+        )
+
+apply_theme()
 
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
