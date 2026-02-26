@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -30,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.20"
+VERSION = "1.19"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -176,7 +177,6 @@ default_config = {
     "show_trip_time": True,
     "show_day_time": True,
     "temp_swapped": False,
-    "brightness": 80,
     "night_mode": False,
 }
 
@@ -603,6 +603,15 @@ def get_theme_colors():
             "fg_warning": "#FFC857",
             "fg_danger": "#FF6B6B",
             "fg_muted": "#A0A4B8",
+            # Spezielle Farben für Anzeigen im Nachtmodus
+            "fg_speed": "#7FC8FF",
+            "fg_consumption": "#9BE36C",
+            "fg_volt": "#FFC857",
+            # Tankanzeige
+            "fuel_main_high": "#2E8B57",   # gedämpftes Grün
+            "fuel_main_mid": "#D9A800",    # dunkleres Gelb
+            "fuel_main_low": "#8B0000",    # dunkles Rot
+            "fuel_reserve": "#8B4513",     # braun für Reserve
         }
     else:
         return {
@@ -614,6 +623,15 @@ def get_theme_colors():
             "fg_warning": "yellow",
             "fg_danger": "red",
             "fg_muted": "white",
+            # Spezielle Farben für Anzeigen im Tagmodus
+            "fg_speed": "cyan",
+            "fg_consumption": "lime",
+            "fg_volt": "orange",
+            # Tankanzeige
+            "fuel_main_high": "green",
+            "fuel_main_mid": "yellow",
+            "fuel_main_low": "red",
+            "fuel_reserve": "orange",
         }
 
 theme = get_theme_colors()
@@ -780,25 +798,7 @@ def open_config():
     )
     night_cb.pack(anchor="w", pady=(8, 2))
 
-    if BACKLIGHT_PATH is not None or BACKLIGHT_PWM is not None:
-        sep_hl = tk.Frame(right_col, height=2, bg="grey40")
-        sep_hl.pack(fill="x", pady=8)
-        hl_frame = tk.Frame(right_col)
-        hl_frame.pack(fill="x", pady=2)
-        tk.Label(hl_frame, text="Helligkeit:", font=("Arial", 10), bg=theme["bg_panel"], fg=theme["fg_text"]).pack(side="left", padx=(0, 8))
-        current_hl = config.get("brightness", 80)
-        hl_label = tk.Label(hl_frame, text=f"{current_hl} %", font=("Arial", 10), width=5, bg=theme["bg_panel"], fg=theme["fg_text"])
-        hl_label.pack(side="right")
-        def on_brightness_change(val):
-            pct = int(float(val))
-            set_brightness(pct)
-            config["brightness"] = pct
-            save_config()
-            hl_label.config(text=f"{pct} %")
-        hl_scale = tk.Scale(right_col, from_=0, to=100, orient="horizontal", length=200,
-                            command=on_brightness_change, showvalue=False)
-        hl_scale.set(current_hl)
-        hl_scale.pack(fill="x", pady=2)
+    # Helligkeitseinstellung wurde entfernt, da sie hardwareseitig nicht zuverlässig funktioniert.
 
 btn_config = tk.Button(middle_frame, text="Config", font=("Arial", 12, "bold"), bg="blue", command=open_config)
 btn_config.pack(pady=5, padx=5)
@@ -810,26 +810,26 @@ sat_label = tk.Label(bottom_frame, text="Sat : 0/0", font=("Arial", 14), fg=them
 sat_label.pack(pady=5, padx=5)
 
 # --- Labels im center_frame ---
-speed_label = tk.Label(center_frame, text="Speed: -- km/h", font=("Arial", 22), fg="cyan", bg=theme["bg_panel"])
+speed_label = tk.Label(center_frame, text="Speed: -- km/h", font=("Arial", 22), fg=theme["fg_speed"], bg=theme["bg_panel"])
 speed_label.grid(row=0, column=0, pady=2)
 
 avg_speed_label = tk.Label(center_frame, text="Ø km/h: -- / --", font=("Arial", 16), fg=theme["fg_text"], bg=theme["bg_panel"])
 avg_speed_label.grid(row=1, column=0, pady=2)
 
-l100_label = tk.Label(center_frame, text="Verbrauch: -- l/100km", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
+l100_label = tk.Label(center_frame, text="Verbrauch: -- l/100km", font=("Arial", 16), fg=theme["fg_consumption"], bg=theme["bg_panel"])
 l100_label.grid(row=2, column=0, pady=2)
 
-avg_label = tk.Label(center_frame, text="Ø: -- / -- l/100km", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
+avg_label = tk.Label(center_frame, text="Ø: -- / -- l/100km", font=("Arial", 16), fg=theme["fg_consumption"], bg=theme["bg_panel"])
 avg_label.grid(row=3, column=0, pady=2)
 
 # --- l/h + Volt ---
 lh_volt_frame = tk.Frame(center_frame, bg=theme["bg_panel"])
 lh_volt_frame.grid(row=4, column=0, pady=2)
 
-lh_label = tk.Label(lh_volt_frame, text="l/h: 0.00", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
+lh_label = tk.Label(lh_volt_frame, text="l/h: 0.00", font=("Arial", 16), fg=theme["fg_consumption"], bg=theme["bg_panel"])
 lh_label.pack(side="left", padx=10)
 
-volt_label = tk.Label(lh_volt_frame, text="Volt: --", font=("Arial", 16), fg="orange", bg=theme["bg_panel"])
+volt_label = tk.Label(lh_volt_frame, text="Volt: --", font=("Arial", 16), fg=theme["fg_volt"], bg=theme["bg_panel"])
 volt_label.pack(side="left", padx=10)
 
 # --- Trip-Zeit ---
@@ -890,14 +890,24 @@ def draw_fuel_bar(level, avg_consumption):
     y0_main = height - total_height
     y0_reserve = height - reserve_height
 
-    color_reserve = "orange"
+    color_reserve = theme.get("fuel_reserve", "orange")
     if level > reserve_liters:
         percent_main = (level - reserve_liters) / fuel_capacity * 100
-        color_main = "green" if percent_main > 60 else "yellow" if percent_main > 10 else "red"
+        if percent_main > 60:
+            color_main = theme.get("fuel_main_high", "green")
+        elif percent_main > 10:
+            color_main = theme.get("fuel_main_mid", "yellow")
+        else:
+            color_main = theme.get("fuel_main_low", "red")
     else:
-        color_main = "orange"
+        color_main = theme.get("fuel_reserve", "orange")
 
-    text_color = theme["fg_text"] if color_main != "yellow" else "black"
+    # Textfarbe: im Nachtmodus immer weiches Textweiß, im Tagmodus auf gelbem Bereich schwarz
+    if config.get("night_mode", False):
+        text_color = theme["fg_text"]
+    else:
+        # Tagmodus: bei mittlerem Füllstand (gelb) besser schwarzer Text
+        text_color = "white" if color_main != "yellow" else "black"
 
     if level > reserve_liters:
         fuel_canvas.create_rectangle(0, y0_main, width, y0_reserve, fill=color_main, outline="white")
@@ -1046,14 +1056,21 @@ def _update_gui_impl():
     oil_display = oil_str + last_display_oil_trend_symbol
 
     # Farbgebung je nach Öltemperatur
-    oil_color = "deepskyblue"
+    theme = get_theme_colors()
+    oil_color = theme["fg_accent"]
     if oil_val is not None:
         if oil_val >= 110:
             oil_color = "red"
         elif oil_val >= 100:
             oil_color = "yellow"
 
-    temp_label.config(text=f"Aussen: {aussen_str}  / Öl: {oil_display}")
+    temp_label.config(
+        text=f"Aussen: {aussen_str}  / Öl: {oil_display}",
+        fg=oil_color,
+        activeforeground=oil_color,
+        bg=theme["bg_panel"],
+        activebackground=theme["bg_panel"],
+    )
 
     volt_label.config(text=f"Volt: {volt_value:.2f} V" if volt_value is not None else "Volt: --")
     sat_label.config(text=f"Sat : {sat_used}/{sat_seen}")
@@ -1205,9 +1222,20 @@ def apply_theme():
     date_label.configure(bg=theme["bg_root"], fg=theme["fg_text"])
     time_label.configure(bg=theme["bg_root"], fg=theme["fg_text"])
     fuel_canvas.configure(bg=theme["bg_root"])
+    # Haupt-Labels anpassen
+    sat_label.configure(bg=theme["bg_side"], fg=theme["fg_warning"])
+    speed_label.configure(bg=theme["bg_panel"], fg=theme["fg_speed"])
+    avg_speed_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
+    l100_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
+    avg_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
+    lh_volt_frame.configure(bg=theme["bg_panel"])
+    lh_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
+    volt_label.configure(bg=theme["bg_panel"], fg=theme["fg_volt"])
+    trip_time_frame.configure(bg=theme["bg_panel"])
+    trip_time_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
+    distance_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
+    temp_label.configure(bg=theme["bg_panel"], activebackground=theme["bg_panel"])
 
-if BACKLIGHT_PATH is not None:
-    set_brightness(config.get("brightness", 80))
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
