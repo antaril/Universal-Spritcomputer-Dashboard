@@ -30,7 +30,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.19"
+VERSION = "1.20"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -210,21 +210,83 @@ def check_latest_version():
         return None
 
 def run_update():
-    """Startet den Updater (sudo). Dashboard wird vom Updater beendet und neu gestartet."""
+    """Startet den Updater (sudo) und bietet danach einen Neustart-Button an."""
     if not os.path.isfile(UPDATER_SCRIPT):
         messagebox.showerror("Update", f"Updater nicht gefunden:\n{UPDATER_SCRIPT}")
         return
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ["sudo", "python3", UPDATER_SCRIPT],
             cwd=os.path.dirname(UPDATER_SCRIPT),
             start_new_session=True,
         )
-        messagebox.showinfo("Update", "Update wird durchgeführt.\nDas Dashboard startet in Kürze neu.")
-        save_data()
-        save_config()
-        root.destroy()
-        os._exit(0)
+
+        messagebox.showinfo("Update", "Update wurde gestartet.\nBitte warte, bis es abgeschlossen ist.")
+
+        def wait_for_update():
+            ret = proc.wait()
+
+            def show_result():
+                if ret == 0:
+                    # Eigenes kleines Fenster mit „Restart Skript“-Button
+                    theme = get_theme_colors()
+                    win = tk.Toplevel(root)
+                    win.title("Update")
+                    win.configure(bg=theme["bg_panel"])
+
+                    msg = tk.Label(
+                        win,
+                        text="Update erfolgreich abgeschlossen.\nDu kannst das Skript jetzt neu starten.",
+                        bg=theme["bg_panel"],
+                        fg=theme["fg_text"],
+                        font=("Arial", 11),
+                        padx=10,
+                        pady=10,
+                        justify="left",
+                    )
+                    msg.pack(fill="both", expand=True)
+
+                    btn_frame = tk.Frame(win, bg=theme["bg_panel"])
+                    btn_frame.pack(pady=(0, 10))
+
+                    def do_restart():
+                        save_data()
+                        save_config()
+                        root.destroy()
+                        os._exit(0)
+
+                    restart_btn = tk.Button(
+                        btn_frame,
+                        text="Restart Skript",
+                        font=("Arial", 11, "bold"),
+                        bg="green",
+                        fg="white",
+                        activebackground="green",
+                        activeforeground="white",
+                        command=do_restart,
+                    )
+                    restart_btn.pack(side="left", padx=5)
+
+                    close_btn = tk.Button(
+                        btn_frame,
+                        text="Später",
+                        font=("Arial", 10),
+                        command=win.destroy,
+                    )
+                    close_btn.pack(side="left", padx=5)
+                else:
+                    messagebox.showerror(
+                        "Update",
+                        "Update ist fehlgeschlagen.\nBitte Logdatei auf dem Raspberry prüfen.",
+                    )
+
+            try:
+                root.after(0, show_result)
+            except tk.TclError:
+                # Fenster evtl. schon geschlossen
+                pass
+
+        threading.Thread(target=wait_for_update, daemon=True).start()
     except Exception as e:
         messagebox.showerror("Update", f"Updater starten fehlgeschlagen:\n{e}")
         logging.error(f"Update starten: {e}")
