@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.22"
+VERSION = "1.23"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -709,6 +709,7 @@ btn_day_reset = tk.Button(
     activebackground="orange",
     activeforeground="black",
     highlightthickness=0,
+    command=day_reset,
 )
 btn_day_reset.pack(pady=5, padx=5)
 
@@ -818,6 +819,7 @@ btn_config = tk.Button(
     activebackground="blue",
     activeforeground="white",
     highlightthickness=0,
+    command=open_config,
 )
 btn_config.pack(pady=5, padx=5)
 
@@ -830,6 +832,7 @@ btn_reset_trip = tk.Button(
     activebackground="red",
     activeforeground="white",
     highlightthickness=0,
+    command=reset_trip,
 )
 btn_reset_trip.pack(pady=5, padx=5)
 
