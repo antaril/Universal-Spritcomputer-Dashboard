@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -15,6 +14,7 @@ from zoneinfo import ZoneInfo
 import glob
 import logging
 import math
+import shutil
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.24"
+VERSION = "1.25"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -368,15 +368,20 @@ def save_data():
     }
 
     try:
-        # 1. in temp-Datei schreiben
+        # 1. In temp-Datei schreiben und auf Platte bringen (bei Stromausfall weniger Korruption)
         with open(TRIP_TMP_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except (OSError, AttributeError):
+                pass
 
-        # 2. alte Hauptdatei als Backup sichern
+        # 2. Aktuelle Hauptdatei als Backup sichern (Kopie). Hauptdatei existiert dabei weiter.
         if os.path.exists(TRIP_FILE):
-            os.replace(TRIP_FILE, TRIP_BACKUP_FILE)
+            shutil.copy2(TRIP_FILE, TRIP_BACKUP_FILE)
 
-        # 3. temp -> Hauptdatei (atomar)
+        # 3. Temp -> Hauptdatei (atomar). Hauptdatei fehlt nie, da wir sie nicht vorher löschen.
         os.replace(TRIP_TMP_FILE, TRIP_FILE)
 
     except Exception as e:
@@ -427,28 +432,26 @@ def load_data():
         return
 
     # Fall 2: Hauptdatei und Backup vorhanden
+    # Nur bei echten Fehlern fragen (Hauptdatei leer/korrupt), nicht wenn sie nur anders als Backup ist.
     if main_data is not None and backup_data is not None:
-        problem = is_empty(main_data) or main_data != backup_data
-        if problem:
+        main_bad = is_empty(main_data)
+        if main_bad:
             try:
                 use_backup = messagebox.askyesno(
                     "Datenfehler erkannt",
-                    "Datenfehler erkannt, Backup laden?\nJa = Backup verwenden, Nein = aktuelle Daten behalten/zurücksetzen.",
+                    "Hauptdatei ist leer oder defekt. Backup laden?\nJa = Backup verwenden, Nein = Zurücksetzen.",
                 )
             except Exception as e:
                 logging.error(f"Fehler beim Anzeigen des Datenfehler-Dialogs: {e}")
                 use_backup = True
-
             if use_backup:
                 chosen_data = backup_data
                 loaded_from_backup = True
             else:
-                # Wenn Hauptdatei leer ist und der Nutzer 'Nein' sagt, lieber komplett zurücksetzen
-                if is_empty(main_data):
-                    reset_trip()
-                    return
-                chosen_data = main_data
+                reset_trip()
+                return
         else:
+            # Hauptdatei ist gültig und nicht leer → immer verwenden, kein Dialog
             chosen_data = main_data
 
     # Fall 3: nur Hauptdatei vorhanden
