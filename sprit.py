@@ -30,7 +30,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.18"
+VERSION = "1.19"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -124,6 +124,13 @@ temp_oil_celsius = None
 volt_value = None
 current_l100 = 0.0
 
+last_temp_celsius_value = None
+last_temp_celsius_time = None
+last_temp_oil_value = None
+last_temp_oil_time = None
+last_display_oil_temp = None
+last_display_oil_trend_symbol = ""
+
 trip_liters = 0.0
 trip_distance = 0.0
 avg_consumption = 0.0
@@ -170,6 +177,7 @@ default_config = {
     "show_day_time": True,
     "temp_swapped": False,
     "brightness": 80,
+    "night_mode": False,
 }
 
 def load_config():
@@ -324,33 +332,115 @@ def load_data():
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
-    data = None
-    loaded_from_backup = False
+    def is_empty(data):
+        """True, wenn die gelesenen Daten leer/ungültig sind."""
+        if not isinstance(data, dict):
+            return True
+        return len(data) == 0
 
-    # 1. Hauptdatei versuchen
+    main_data = None
+    backup_data = None
+
+    # Hauptdatei einlesen
     try:
         if os.path.exists(TRIP_FILE):
-            data = load_from(TRIP_FILE)
+            main_data = load_from(TRIP_FILE)
     except Exception as e:
         logging.error(f"Hauptdatei defekt: {e}")
 
-    # 2. Backup versuchen, falls Hauptdatei fehlgeschlagen oder fehlt
-    if data is None:
-        try:
-            if os.path.exists(TRIP_BACKUP_FILE):
-                logging.warning("Backup wird geladen (Hauptdatei fehlt oder beschädigt)")
-                data = load_from(TRIP_BACKUP_FILE)
-                loaded_from_backup = True
-        except Exception as e:
-            logging.error(f"Backup defekt: {e}")
+    # Backup einlesen
+    try:
+        if os.path.exists(TRIP_BACKUP_FILE):
+            backup_data = load_from(TRIP_BACKUP_FILE)
+    except Exception as e:
+        logging.error(f"Backup defekt: {e}")
 
-    # 3. Wenn beide fehlschlagen: Reset
-    if data is None:
+    chosen_data = None
+    loaded_from_backup = False
+
+    # Fall 1: gar keine gültigen Daten
+    if main_data is None and backup_data is None:
         logging.error("Keine gueltigen Daten gefunden, Reset")
         reset_trip()
         return
 
-    # 4. Daten uebernehmen
+    # Fall 2: Hauptdatei und Backup vorhanden
+    if main_data is not None and backup_data is not None:
+        problem = is_empty(main_data) or main_data != backup_data
+        if problem:
+            try:
+                use_backup = messagebox.askyesno(
+                    "Datenfehler erkannt",
+                    "Datenfehler erkannt, Backup laden?\nJa = Backup verwenden, Nein = aktuelle Daten behalten/zurücksetzen.",
+                )
+            except Exception as e:
+                logging.error(f"Fehler beim Anzeigen des Datenfehler-Dialogs: {e}")
+                use_backup = True
+
+            if use_backup:
+                chosen_data = backup_data
+                loaded_from_backup = True
+            else:
+                # Wenn Hauptdatei leer ist und der Nutzer 'Nein' sagt, lieber komplett zurücksetzen
+                if is_empty(main_data):
+                    reset_trip()
+                    return
+                chosen_data = main_data
+        else:
+            chosen_data = main_data
+
+    # Fall 3: nur Hauptdatei vorhanden
+    elif main_data is not None:
+        if is_empty(main_data):
+            if backup_data is not None and not is_empty(backup_data):
+                try:
+                    use_backup = messagebox.askyesno(
+                        "Datenfehler erkannt",
+                        "Datenfehler erkannt, Backup laden?\nJa = Backup verwenden, Nein = Daten zurücksetzen.",
+                    )
+                except Exception as e:
+                    logging.error(f"Fehler beim Anzeigen des Datenfehler-Dialogs: {e}")
+                    use_backup = True
+
+                if use_backup:
+                    chosen_data = backup_data
+                    loaded_from_backup = True
+                else:
+                    reset_trip()
+                    return
+            else:
+                logging.error("Hauptdatei leer und kein gueltiges Backup vorhanden, Reset")
+                reset_trip()
+                return
+        else:
+            chosen_data = main_data
+
+    # Fall 4: nur Backup vorhanden
+    else:
+        try:
+            use_backup = messagebox.askyesno(
+                "Datenfehler erkannt",
+                "Datenfehler erkannt, Backup laden?\nJa = Backup verwenden, Nein = Daten zurücksetzen.",
+            )
+        except Exception as e:
+            logging.error(f"Fehler beim Anzeigen des Datenfehler-Dialogs: {e}")
+            use_backup = True
+
+        if use_backup:
+            chosen_data = backup_data
+            loaded_from_backup = True
+        else:
+            reset_trip()
+            return
+
+    if chosen_data is None:
+        logging.error("Kein Datensatz ausgewaehlt, Reset")
+        reset_trip()
+        return
+
+    data = chosen_data
+
+    # Daten übernehmen
     trip_liters = data.get("trip_liters", 0.0)
     trip_distance = data.get("trip_distance", 0.0)
     fuel_liters = data.get("fuel_liters", fuel_capacity + reserve_liters)
@@ -364,7 +454,7 @@ def load_data():
     trip_time = data.get("trip_time", 0.0)
     trip_time_tag = data.get("trip_time_tag", 0.0)
 
-    # 5. Wenn aus Backup geladen: Hauptdatei sofort reparieren (gültige Daten zurückschreiben)
+    # Wenn aus Backup geladen: Hauptdatei sofort reparieren (gültige Daten zurückschreiben)
     if loaded_from_backup:
         try:
             save_data()
@@ -389,6 +479,8 @@ def _read_one_temp(device_file):
 
 def read_temp():
     global temp_celsius, temp_oil_celsius
+    global last_temp_celsius_value, last_temp_celsius_time
+    global last_temp_oil_value, last_temp_oil_time
     base_dir = '/sys/bus/w1/devices/'
     try:
         device_folders = sorted(glob.glob(base_dir + '28-*'))
@@ -397,10 +489,22 @@ def read_temp():
             temp_oil_celsius = None
             return
         # Erster Sensor = Aussen
-        temp_celsius = _read_one_temp(device_folders[0] + '/w1_slave')
+        val1 = _read_one_temp(device_folders[0] + '/w1_slave')
+        if val1 is not None:
+            temp_celsius = val1
+            last_temp_celsius_value = val1
+            last_temp_celsius_time = time.time()
+        else:
+            temp_celsius = None
         # Zweiter Sensor = Öl (falls vorhanden)
         if len(device_folders) >= 2:
-            temp_oil_celsius = _read_one_temp(device_folders[1] + '/w1_slave')
+            val2 = _read_one_temp(device_folders[1] + '/w1_slave')
+            if val2 is not None:
+                temp_oil_celsius = val2
+                last_temp_oil_value = val2
+                last_temp_oil_time = time.time()
+            else:
+                temp_oil_celsius = None
         else:
             temp_oil_celsius = None
     except Exception as e:
@@ -422,14 +526,42 @@ except Exception:
 root = tk.Tk()
 root.title("Sprit Dashboard")
 root.attributes("-fullscreen", True)
-root.configure(bg="black")
 root.bind("<Escape>", lambda e: on_exit())
 root.config(cursor="none")
 
-frame_dashboard = tk.Frame(root, bg="grey20")
+def get_theme_colors():
+    """Liefert die aktuell aktiven Farbcodes für Tag-/Nachtmodus."""
+    if config.get("night_mode", False):
+        return {
+            "bg_root": "#05050A",
+            "bg_panel": "#101018",
+            "bg_side": "#080810",
+            "fg_text": "#E0E6FF",
+            "fg_accent": "#7FC8FF",
+            "fg_warning": "#FFC857",
+            "fg_danger": "#FF6B6B",
+            "fg_muted": "#A0A4B8",
+        }
+    else:
+        return {
+            "bg_root": "black",
+            "bg_panel": "grey20",
+            "bg_side": "grey20",
+            "fg_text": "white",
+            "fg_accent": "deepskyblue",
+            "fg_warning": "yellow",
+            "fg_danger": "red",
+            "fg_muted": "white",
+        }
+
+theme = get_theme_colors()
+
+root.configure(bg=theme["bg_root"])
+
+frame_dashboard = tk.Frame(root, bg=theme["bg_panel"])
 frame_dashboard.pack(expand=True, fill="both")
 
-version_label = tk.Label(frame_dashboard, text=f"V{VERSION}", font=("Arial", 10), fg="white", bg="grey20")
+version_label = tk.Label(frame_dashboard, text=f"V{VERSION}", font=("Arial", 10), fg=theme["fg_text"], bg=theme["bg_panel"])
 version_label.place(x=5, y=5)
 
 # --- Reset Funktionen ---
@@ -472,20 +604,20 @@ def on_exit():
     root.destroy()
 
 # --- Frames ---
-left_frame = tk.Frame(frame_dashboard, bg="grey20")
+left_frame = tk.Frame(frame_dashboard, bg=theme["bg_side"])
 left_frame.pack(side="left", fill="y")
-center_frame = tk.Frame(frame_dashboard, bg="grey20")
+center_frame = tk.Frame(frame_dashboard, bg=theme["bg_panel"])
 center_frame.pack(side="left", expand=True)
 center_frame.grid_columnconfigure(0, weight=1)
-right_frame = tk.Frame(frame_dashboard, bg="black")
+right_frame = tk.Frame(frame_dashboard, bg=theme["bg_root"])
 right_frame.pack(side="right", fill="y")
 
 # --- Buttons ---
-top_frame = tk.Frame(left_frame, bg="grey20")
+top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 top_frame.pack(side="top", fill="x", pady=5)
-middle_frame = tk.Frame(left_frame, bg="grey20")
+middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 middle_frame.pack(expand=True)
-bottom_frame = tk.Frame(left_frame, bg="grey20")
+bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 bottom_frame.pack(side="bottom", fill="x", pady=5)
 
 btn_day_reset = tk.Button(top_frame, text="Dayreset", font=("Arial", 12, "bold"), bg="orange", command=day_reset)
@@ -500,10 +632,14 @@ def open_config():
     cfg_win = tk.Toplevel(root)
     cfg_win.title("Dashboard Config")
 
+    theme = get_theme_colors()
+
+    cfg_win.configure(bg=theme["bg_panel"])
+
     # Zwei Spalten nebeneinander
-    left_col = tk.Frame(cfg_win, padx=10, pady=5)
+    left_col = tk.Frame(cfg_win, padx=10, pady=5, bg=theme["bg_panel"])
     left_col.pack(side="left", fill="y")
-    right_col = tk.Frame(cfg_win, padx=10, pady=5)
+    right_col = tk.Frame(cfg_win, padx=10, pady=5, bg=theme["bg_panel"])
     right_col.pack(side="left", fill="y")
 
     # --- Links: Checkboxen ---
@@ -511,12 +647,27 @@ def open_config():
         if not isinstance(default_config[key], bool):
             continue
         var = tk.BooleanVar(value=config.get(key, default_config[key]))
-        cb = tk.Checkbutton(left_col, text=key.replace("show_", "").replace("_", " ").title(),
-                            variable=var, command=lambda k=key, v=var: toggle_block(k, v))
+        cb = tk.Checkbutton(
+            left_col,
+            text=key.replace("show_", "").replace("_", " ").title(),
+            variable=var,
+            command=lambda k=key, v=var: toggle_block(k, v),
+            bg=theme["bg_panel"],
+            fg=theme["fg_text"],
+            selectcolor=theme["bg_side"],
+            activebackground=theme["bg_panel"],
+            activeforeground=theme["fg_text"],
+        )
         cb.pack(anchor="w")
 
-    # --- Rechts: Version, Update, Helligkeit ---
-    version_info_label = tk.Label(right_col, text=f"Aktuell: V{VERSION}  |  Neueste: …", font=("Arial", 10))
+    # --- Rechts: Version, Update, Helligkeit, Nachtmodus ---
+    version_info_label = tk.Label(
+        right_col,
+        text=f"Aktuell: V{VERSION}  |  Neueste: …",
+        font=("Arial", 10),
+        bg=theme["bg_panel"],
+        fg=theme["fg_text"],
+    )
     version_info_label.pack(anchor="w")
 
     def fetch_version_in_thread():
@@ -533,18 +684,48 @@ def open_config():
 
     threading.Thread(target=fetch_version_in_thread, daemon=True).start()
 
-    btn_update = tk.Button(right_col, text="Jetzt aktualisieren", font=("Arial", 11, "bold"), bg="green", fg="white",
-                           command=run_update)
+    btn_update = tk.Button(
+        right_col,
+        text="Jetzt aktualisieren",
+        font=("Arial", 11, "bold"),
+        bg="green",
+        fg="white",
+        activebackground="green",
+        activeforeground="white",
+        command=run_update,
+    )
     btn_update.pack(pady=5)
+
+    # Nachtmodus Toggle
+    night_var = tk.BooleanVar(value=config.get("night_mode", False))
+
+    def on_night_mode_toggle():
+        config["night_mode"] = night_var.get()
+        save_config()
+        apply_theme()
+
+    night_cb = tk.Checkbutton(
+        right_col,
+        text="Nachtmodus",
+        variable=night_var,
+        command=on_night_mode_toggle,
+        font=("Arial", 10, "bold"),
+        bg=theme["bg_panel"],
+        fg=theme["fg_text"],
+        selectcolor=theme["bg_side"],
+        activebackground=theme["bg_panel"],
+        activeforeground=theme["fg_text"],
+    )
+    night_cb.pack(anchor="w", pady=(8, 2))
 
     if BACKLIGHT_PATH is not None or BACKLIGHT_PWM is not None:
         sep_hl = tk.Frame(right_col, height=2, bg="grey40")
         sep_hl.pack(fill="x", pady=8)
         hl_frame = tk.Frame(right_col)
         hl_frame.pack(fill="x", pady=2)
-        tk.Label(hl_frame, text="Helligkeit:", font=("Arial", 10)).pack(side="left", padx=(0, 8))
+        tk.Label(hl_frame, text="Helligkeit:", font=("Arial", 10), bg=theme["bg_panel"], fg=theme["fg_text"]).pack(side="left", padx=(0, 8))
         current_hl = config.get("brightness", 80)
-        hl_label = tk.Label(hl_frame, text=f"{current_hl} %", font=("Arial", 10), width=5)
+        hl_label = tk.Label(hl_frame, text=f"{current_hl} %", font=("Arial", 10), width=5, bg=theme["bg_panel"], fg=theme["fg_text"])
         hl_label.pack(side="right")
         def on_brightness_change(val):
             pct = int(float(val))
@@ -563,41 +744,41 @@ btn_config.pack(pady=5, padx=5)
 btn_reset_trip = tk.Button(bottom_frame, text="Reset", font=("Arial", 12, "bold"), bg="red", command=reset_trip)
 btn_reset_trip.pack(pady=5, padx=5)
 
-sat_label = tk.Label(bottom_frame, text="Sat : 0/0", font=("Arial", 14), fg="yellow", bg="grey20")
+sat_label = tk.Label(bottom_frame, text="Sat : 0/0", font=("Arial", 14), fg=theme["fg_warning"], bg=theme["bg_side"])
 sat_label.pack(pady=5, padx=5)
 
 # --- Labels im center_frame ---
-speed_label = tk.Label(center_frame, text="Speed: -- km/h", font=("Arial", 22), fg="cyan", bg="grey20")
+speed_label = tk.Label(center_frame, text="Speed: -- km/h", font=("Arial", 22), fg="cyan", bg=theme["bg_panel"])
 speed_label.grid(row=0, column=0, pady=2)
 
-avg_speed_label = tk.Label(center_frame, text="Ø km/h: -- / --", font=("Arial", 16), fg="white", bg="grey20")
+avg_speed_label = tk.Label(center_frame, text="Ø km/h: -- / --", font=("Arial", 16), fg=theme["fg_text"], bg=theme["bg_panel"])
 avg_speed_label.grid(row=1, column=0, pady=2)
 
-l100_label = tk.Label(center_frame, text="Verbrauch: -- l/100km", font=("Arial", 16), fg="lime", bg="grey20")
+l100_label = tk.Label(center_frame, text="Verbrauch: -- l/100km", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
 l100_label.grid(row=2, column=0, pady=2)
 
-avg_label = tk.Label(center_frame, text="Ø: -- / -- l/100km", font=("Arial", 16), fg="lime", bg="grey20")
+avg_label = tk.Label(center_frame, text="Ø: -- / -- l/100km", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
 avg_label.grid(row=3, column=0, pady=2)
 
 # --- l/h + Volt ---
-lh_volt_frame = tk.Frame(center_frame, bg="grey20")
+lh_volt_frame = tk.Frame(center_frame, bg=theme["bg_panel"])
 lh_volt_frame.grid(row=4, column=0, pady=2)
 
-lh_label = tk.Label(lh_volt_frame, text="l/h: 0.00", font=("Arial", 16), fg="lime", bg="grey20")
+lh_label = tk.Label(lh_volt_frame, text="l/h: 0.00", font=("Arial", 16), fg="lime", bg=theme["bg_panel"])
 lh_label.pack(side="left", padx=10)
 
-volt_label = tk.Label(lh_volt_frame, text="Volt: --", font=("Arial", 16), fg="orange", bg="grey20")
+volt_label = tk.Label(lh_volt_frame, text="Volt: --", font=("Arial", 16), fg="orange", bg=theme["bg_panel"])
 volt_label.pack(side="left", padx=10)
 
 # --- Trip-Zeit ---
-trip_time_frame = tk.Frame(center_frame, bg="grey20")
+trip_time_frame = tk.Frame(center_frame, bg=theme["bg_panel"])
 trip_time_frame.grid(row=5, column=0, pady=2)
 
-trip_time_label = tk.Label(trip_time_frame, text="Trip Time: 00:00 | 00:00", font=("Arial", 16), fg="white", bg="grey20")
+trip_time_label = tk.Label(trip_time_frame, text="Trip Time: 00:00 | 00:00", font=("Arial", 16), fg=theme["fg_text"], bg=theme["bg_panel"])
 trip_time_label.pack(side="left", padx=10)
 
 # --- Weitere Labels ---
-distance_label = tk.Label(center_frame, text="Trip km: 0.00 / 0.00", font=("Arial", 16), fg="white", bg="grey20")
+distance_label = tk.Label(center_frame, text="Trip km: 0.00 / 0.00", font=("Arial", 16), fg=theme["fg_text"], bg=theme["bg_panel"])
 distance_label.grid(row=6, column=0, pady=2)
 
 def on_temp_click():
@@ -607,23 +788,24 @@ def on_temp_click():
 
 temp_label = tk.Button(
     center_frame, text="Aussen: --  / Öl: --",
-    font=("Arial", 15), fg="deepskyblue", bg="grey20",
+    font=("Arial", 15), fg=theme["fg_accent"], bg=theme["bg_panel"],
     relief="flat", bd=0, highlightthickness=0,
-    activebackground="grey20", activeforeground="deepskyblue",
+    activebackground=theme["bg_panel"], activeforeground=theme["fg_accent"],
     command=on_temp_click
 )
 temp_label.grid(row=7, column=0, pady=2)
 
 # --- Fuel Canvas ---
-date_label = tk.Label(right_frame, text="", font=("Arial", 14), fg="white", bg="black")
+date_label = tk.Label(right_frame, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_root"])
 date_label.pack(anchor="ne", pady=(5, 0), padx=5)
-time_label = tk.Label(right_frame, text="", font=("Arial", 14), fg="white", bg="black")
+time_label = tk.Label(right_frame, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_root"])
 time_label.pack(anchor="ne", pady=(0, 5), padx=5)
-fuel_canvas = tk.Canvas(right_frame, width=60, bg="black", highlightthickness=0)
+fuel_canvas = tk.Canvas(right_frame, width=60, bg=theme["bg_root"], highlightthickness=0)
 fuel_canvas.pack(fill="y", expand=True)
 
 def draw_fuel_bar(level, avg_consumption):
     global toggle_display_counter, last_toggle_time
+    theme = get_theme_colors()
 
     now = time.time()
     if now - last_toggle_time >= 5:   # alle 5 Sekunden umschalten
@@ -653,7 +835,7 @@ def draw_fuel_bar(level, avg_consumption):
     else:
         color_main = "orange"
 
-    text_color = "white" if color_main != "yellow" else "black"
+    text_color = theme["fg_text"] if color_main != "yellow" else "black"
 
     if level > reserve_liters:
         fuel_canvas.create_rectangle(0, y0_main, width, y0_reserve, fill=color_main, outline="white")
@@ -754,15 +936,63 @@ def _update_gui_impl():
         text=f"Trip Time: {format_time(trip_time)} | {format_time(trip_time_tag)}"
     )
 
+    global last_temp_celsius_value, last_temp_celsius_time
+    global last_temp_oil_value, last_temp_oil_time
+    global last_display_oil_temp, last_display_oil_trend_symbol
+
     distance_label.config(text=f"Trip km: {trip_distance:.2f} / {trip_distance_tag:.2f}")
+
+    now_ts = time.time()
+    max_age = 15.0
+
+    # Letzte gültige Temperaturen verwenden, solange sie nicht älter als max_age sind
+    disp_temp1 = None
+    if last_temp_celsius_value is not None and last_temp_celsius_time is not None:
+        if now_ts - last_temp_celsius_time <= max_age:
+            disp_temp1 = last_temp_celsius_value
+
+    disp_temp2 = None
+    if last_temp_oil_value is not None and last_temp_oil_time is not None:
+        if now_ts - last_temp_oil_time <= max_age:
+            disp_temp2 = last_temp_oil_value
+
     # Sensor 1 = erster 28-*, Sensor 2 = zweiter 28-*; bei temp_swapped Anzeige tauschen
-    val1 = f"{temp_celsius:.1f}°C" if temp_celsius is not None else "--"
-    val2 = f"{temp_oil_celsius:.1f}°C" if temp_oil_celsius is not None else "--"
     if config.get("temp_swapped", False):
-        aussen_str, oil_str = val2, val1
+        aussen_val, oil_val = disp_temp2, disp_temp1
     else:
-        aussen_str, oil_str = val1, val2
-    temp_label.config(text=f"Aussen: {aussen_str}  / Öl: {oil_str}")
+        aussen_val, oil_val = disp_temp1, disp_temp2
+
+    aussen_str = f"{aussen_val:.1f}°C" if aussen_val is not None else "--"
+
+    # Trend und Anzeige für Öltemperatur
+    oil_str = "--"
+    if oil_val is not None:
+        oil_str = f"{oil_val:.1f}°C"
+        if last_display_oil_temp is not None:
+            delta = oil_val - last_display_oil_temp
+            if abs(delta) < 0.2:
+                last_display_oil_trend_symbol = ""
+            elif delta > 0:
+                last_display_oil_trend_symbol = " ↑"
+            else:
+                last_display_oil_trend_symbol = " ↓"
+        last_display_oil_temp = oil_val
+    else:
+        last_display_oil_temp = None
+        last_display_oil_trend_symbol = ""
+
+    oil_display = oil_str + last_display_oil_trend_symbol
+
+    # Farbgebung je nach Öltemperatur
+    oil_color = "deepskyblue"
+    if oil_val is not None:
+        if oil_val >= 110:
+            oil_color = "red"
+        elif oil_val >= 100:
+            oil_color = "yellow"
+
+    temp_label.config(text=f"Aussen: {aussen_str}  / Öl: {oil_display}")
+
     volt_label.config(text=f"Volt: {volt_value:.2f} V" if volt_value is not None else "Volt: --")
     sat_label.config(text=f"Sat : {sat_used}/{sat_seen}")
     draw_fuel_bar(fuel_liters, avg_consumption)
@@ -900,6 +1130,20 @@ load_data()
 draw_fuel_bar(fuel_liters, avg_consumption)
 update_visibility()
 update_time()
+
+def apply_theme():
+    """Aktuelles Farbschema auf Hauptfenster anwenden."""
+    theme = get_theme_colors()
+    root.configure(bg=theme["bg_root"])
+    frame_dashboard.configure(bg=theme["bg_panel"])
+    left_frame.configure(bg=theme["bg_side"])
+    center_frame.configure(bg=theme["bg_panel"])
+    right_frame.configure(bg=theme["bg_root"])
+    version_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
+    date_label.configure(bg=theme["bg_root"], fg=theme["fg_text"])
+    time_label.configure(bg=theme["bg_root"], fg=theme["fg_text"])
+    fuel_canvas.configure(bg=theme["bg_root"])
+
 if BACKLIGHT_PATH is not None:
     set_brightness(config.get("brightness", 80))
 threading.Thread(target=read_gps, daemon=True).start()
