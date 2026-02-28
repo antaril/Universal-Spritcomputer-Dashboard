@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -31,7 +32,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.25"
+VERSION = "1.26"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -178,6 +179,7 @@ default_config = {
     "show_day_time": True,
     "temp_swapped": False,
     "night_mode": False,
+    "safety_lock": True,  # True = gesperrt (Temp-Swap & Tankfüllung nicht änderbar)
 }
 
 def load_config():
@@ -700,10 +702,26 @@ right_frame.pack(side="right", fill="y")
 # --- Buttons ---
 top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 top_frame.pack(side="top", fill="x", pady=5)
-middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-middle_frame.pack(expand=True)
-bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-bottom_frame.pack(side="bottom", fill="x", pady=5)
+
+# Schloss-Anzeige: 🔒 = gesperrt (Temp/Tank nicht änderbar), 🔓 = in Config aufgeschlossen
+def update_lock_display():
+    theme = get_theme_colors()
+    locked = config.get("safety_lock", True)
+    lock_label.config(
+        text="🔒" if locked else "🔓",
+        bg=theme["bg_side"],
+        fg=theme["fg_text"],
+    )
+
+lock_label = tk.Label(
+    top_frame,
+    text="🔒",
+    font=("Arial", 20),
+    bg=theme["bg_side"],
+    fg=theme["fg_text"],
+)
+lock_label.pack(pady=(0, 4))
+update_lock_display()
 
 btn_day_reset = tk.Button(
     top_frame,
@@ -722,6 +740,8 @@ def toggle_block(key, var):
     config[key] = var.get()
     save_config()
     update_visibility()
+    if key == "safety_lock":
+        update_lock_display()
 
 def open_config():
     cfg_win = tk.Toplevel(root)
@@ -742,9 +762,14 @@ def open_config():
         if not isinstance(default_config[key], bool):
             continue
         var = tk.BooleanVar(value=config.get(key, default_config[key]))
+        # Lesbare Labels; Sperre: angehakt = gesperrt (Temp & Tank nicht änderbar)
+        if key == "safety_lock":
+            display_text = "Temp & Tank sperren"
+        else:
+            display_text = key.replace("show_", "").replace("_", " ").title()
         cb = tk.Checkbutton(
             left_col,
-            text=key.replace("show_", "").replace("_", " ").title(),
+            text=display_text,
             variable=var,
             command=lambda k=key, v=var: toggle_block(k, v),
             bg=theme["bg_panel"],
@@ -879,7 +904,9 @@ distance_label = tk.Label(center_frame, text="Trip km: 0.00 / 0.00", font=("Aria
 distance_label.grid(row=6, column=0, pady=2)
 
 def on_temp_click():
-    """Klick auf Temperaturzeile: Anzeige Aussen ↔ Öl tauschen (falls Sensoren vertauscht erkannt)."""
+    """Klick auf Temperaturzeile: Anzeige Aussen ↔ Öl tauschen (nur wenn nicht gesperrt)."""
+    if config.get("safety_lock", True):
+        return
     config["temp_swapped"] = not config.get("temp_swapped", False)
     save_config()
 
@@ -965,6 +992,8 @@ def draw_fuel_bar(level, avg_consumption):
                             text=text_reserve, fill=text_color, font=("Arial", 12, "bold"))
 
 def on_fuel_click(event=None):
+    if config.get("safety_lock", True):
+        return
     global fuel_liters
     fuel_liters -= 2.5
     if fuel_liters <= 0:
@@ -1270,6 +1299,7 @@ def apply_theme():
     trip_time_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     distance_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     temp_label.configure(bg=theme["bg_panel"], activebackground=theme["bg_panel"])
+    update_lock_display()
 
     # Buttons je nach Modus etwas abdunkeln, ohne Hintergrund zu ändern
     if config.get("night_mode", False):
