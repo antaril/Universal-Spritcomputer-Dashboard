@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.27"
+VERSION = "1.28"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -70,18 +70,18 @@ def clear_update_state():
 
 
 def rollback_to_previous_version():
-    \"\"\"Stellt die vorherige Version aus BACKUP_DIR wieder her.
+    """Stellt die vorherige Version aus BACKUP_DIR wieder her.
 
     Nutzt die vom Updater erzeugten *.bak-Dateien und kopiert je Datei
     das neueste Backup zurück ins App-Verzeichnis.
-    \"\"\"
+    """
     if not os.path.isdir(BACKUP_DIR):
-        messagebox.showerror(\"Rollback\", \"Kein Backup-Verzeichnis gefunden. Rollback nicht möglich.\")
+        messagebox.showerror("Rollback", "Kein Backup-Verzeichnis gefunden. Rollback nicht möglich.")
         return False
 
     try:
         for fname in FILES_TO_UPDATE:
-            pattern = os.path.join(BACKUP_DIR, f\"{fname}.*.bak\")
+            pattern = os.path.join(BACKUP_DIR, f"{fname}.*.bak")
             candidates = glob.glob(pattern)
             if not candidates:
                 continue
@@ -89,13 +89,13 @@ def rollback_to_previous_version():
             latest = candidates[0]
             dst = os.path.join(APP_DIR, fname)
             shutil.copy2(latest, dst)
-            logging.info(f\"Rollback: {latest} -> {dst}\")
+            logging.info(f"Rollback: {latest} -> {dst}")
 
         clear_update_state()
         return True
     except Exception as e:
-        logging.error(f\"Rollback fehlgeschlagen: {e}\")
-        messagebox.showerror(\"Rollback\", f\"Rollback fehlgeschlagen:\\n{e}\")
+        logging.error(f"Rollback fehlgeschlagen: {e}")
+        messagebox.showerror("Rollback", f"Rollback fehlgeschlagen:\n{e}")
         return False
 
 # --- Bildschirmhelligkeit (Raspberry Pi DSI / SPI-Display) ---
@@ -1486,3 +1486,4 @@ apply_theme()
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
+
