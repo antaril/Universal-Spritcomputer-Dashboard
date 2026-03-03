@@ -31,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.28"
+VERSION = "1.29"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -842,19 +842,19 @@ middle_frame.pack(fill="x", pady=5)
 bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 bottom_frame.pack(side="bottom", fill="x", pady=5)
 
-# Schloss-Anzeige: 🔒 = gesperrt (Temp/Tank nicht änderbar), 🔓 = in Config aufgeschlossen
+# Schloss-Anzeige: "ZU" = gesperrt (Temp/Tank nicht änderbar), "AUF" = in Config aufgeschlossen
 def update_lock_display():
     theme = get_theme_colors()
     locked = config.get("safety_lock", True)
     lock_label.config(
-        text="🔒" if locked else "🔓",
+        text="ZU" if locked else "AUF",
         bg=theme["bg_side"],
         fg=theme["fg_text"],
     )
 
 lock_label = tk.Label(
     top_frame,
-    text="🔒",
+    text="ZU",
     font=("Arial", 20),
     bg=theme["bg_side"],
     fg=theme["fg_text"],
@@ -896,16 +896,15 @@ def open_config():
     right_col = tk.Frame(cfg_win, padx=10, pady=5, bg=theme["bg_panel"])
     right_col.pack(side="left", fill="y")
 
-    # --- Links: Checkboxen ---
+    # --- Links: Checkboxen (ohne Sperre) ---
     for key in default_config.keys():
         if not isinstance(default_config[key], bool):
             continue
-        var = tk.BooleanVar(value=config.get(key, default_config[key]))
-        # Lesbare Labels; Sperre: angehakt = gesperrt (Temp & Tank nicht änderbar)
         if key == "safety_lock":
-            display_text = "Temp & Tank sperren"
-        else:
-            display_text = key.replace("show_", "").replace("_", " ").title()
+            # Separat rechts unter Nachtmodus
+            continue
+        var = tk.BooleanVar(value=config.get(key, default_config[key]))
+        display_text = key.replace("show_", "").replace("_", " ").title()
         cb = tk.Checkbutton(
             left_col,
             text=display_text,
@@ -976,6 +975,22 @@ def open_config():
         activeforeground=theme["fg_text"],
     )
     night_cb.pack(anchor="w", pady=(8, 2))
+
+    # Sperre (Schloss) rechts unter Nachtmodus
+    safety_var = tk.BooleanVar(value=config.get("safety_lock", default_config["safety_lock"]))
+    safety_cb = tk.Checkbutton(
+        right_col,
+        text="Temp & Tank sperren",
+        variable=safety_var,
+        command=lambda k="safety_lock", v=safety_var: toggle_block(k, v),
+        font=("Arial", 10),
+        bg=theme["bg_panel"],
+        fg=theme["fg_text"],
+        selectcolor=theme["bg_side"],
+        activebackground=theme["bg_panel"],
+        activeforeground=theme["fg_text"],
+    )
+    safety_cb.pack(anchor="w", pady=(2, 2))
 
     # Helligkeitseinstellung wurde entfernt, da sie hardwareseitig nicht zuverlässig funktioniert.
 
@@ -1486,4 +1501,3 @@ apply_theme()
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
-
