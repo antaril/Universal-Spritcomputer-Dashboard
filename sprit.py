@@ -32,16 +32,72 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.26"
+VERSION = "1.27"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
+
+# --- Update-/Backup-Pfade & Dateien ---
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+UPDATE_STATE_FILE = "/home/pi/sprit_update_state.json"
+BACKUP_DIR = "/home/pi/sprit_backups"
+FILES_TO_UPDATE = ["sprit.py", "updater.py", "version.txt"]
 
 # --- Pfade ---
 TRIP_FILE = "/home/pi/trip_data.json"
 CONFIG_FILE = "/home/pi/dashboard_config.json"
 TRIP_BACKUP_FILE = "/home/pi/trip_data.bak.json"
 TRIP_TMP_FILE = "/home/pi/trip_data.tmp"
+
+def load_update_state():
+    """Liest ggf. vorhandenen Update-Status (wird vom Updater geschrieben)."""
+    if not os.path.exists(UPDATE_STATE_FILE):
+        return None
+    try:
+        with open(UPDATE_STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logging.error(f"Update-State konnte nicht gelesen werden: {e}")
+        return None
+
+
+def clear_update_state():
+    """Entfernt die Update-Status-Datei, wenn vorhanden."""
+    try:
+        if os.path.exists(UPDATE_STATE_FILE):
+            os.remove(UPDATE_STATE_FILE)
+    except Exception as e:
+        logging.error(f"Update-State konnte nicht gelöscht werden: {e}")
+
+
+def rollback_to_previous_version():
+    \"\"\"Stellt die vorherige Version aus BACKUP_DIR wieder her.
+
+    Nutzt die vom Updater erzeugten *.bak-Dateien und kopiert je Datei
+    das neueste Backup zurück ins App-Verzeichnis.
+    \"\"\"
+    if not os.path.isdir(BACKUP_DIR):
+        messagebox.showerror(\"Rollback\", \"Kein Backup-Verzeichnis gefunden. Rollback nicht möglich.\")
+        return False
+
+    try:
+        for fname in FILES_TO_UPDATE:
+            pattern = os.path.join(BACKUP_DIR, f\"{fname}.*.bak\")
+            candidates = glob.glob(pattern)
+            if not candidates:
+                continue
+            candidates.sort(reverse=True)
+            latest = candidates[0]
+            dst = os.path.join(APP_DIR, fname)
+            shutil.copy2(latest, dst)
+            logging.info(f\"Rollback: {latest} -> {dst}\")
+
+        clear_update_state()
+        return True
+    except Exception as e:
+        logging.error(f\"Rollback fehlgeschlagen: {e}\")
+        messagebox.showerror(\"Rollback\", f\"Rollback fehlgeschlagen:\\n{e}\")
+        return False
 
 # --- Bildschirmhelligkeit (Raspberry Pi DSI / SPI-Display) ---
 BACKLIGHT_PATH = None
@@ -292,6 +348,84 @@ def run_update():
     except Exception as e:
         messagebox.showerror("Update", f"Updater starten fehlgeschlagen:\n{e}")
         logging.error(f"Update starten: {e}")
+
+
+def show_post_update_dialog_if_needed():
+    """Zeigt nach einem Update einmalig einen Dialog:
+
+    'Skript gestartet? Zurück zur vorherigen Version oder weiter'.
+    Die Info, dass ein Update lief, kommt aus UPDATE_STATE_FILE,
+    welches der Updater nach erfolgreichem Update schreibt.
+    """
+    state = load_update_state()
+    if not state or state.get("status") != "updated":
+        return
+
+    theme = get_theme_colors()
+
+    win = tk.Toplevel(root)
+    win.title("Update bestätigen")
+    win.configure(bg=theme["bg_panel"])
+
+    msg = tk.Label(
+        win,
+        text=(
+            "Das Skript wurde nach einem Update gestartet.\n"
+            "Läuft alles korrekt?\n\n"
+            "Falls es Probleme gibt, kannst du auf die vorherige\n"
+            "Version zurückwechseln."
+        ),
+        bg=theme["bg_panel"],
+        fg=theme["fg_text"],
+        font=("Arial", 11),
+        padx=10,
+        pady=10,
+        justify="left",
+    )
+    msg.pack(fill="both", expand=True)
+
+    btn_frame = tk.Frame(win, bg=theme["bg_panel"])
+    btn_frame.pack(pady=(0, 10))
+
+    def keep_current():
+        clear_update_state()
+        win.destroy()
+
+    def do_rollback():
+        if rollback_to_previous_version():
+            messagebox.showinfo(
+                "Rollback",
+                "Die vorherige Version wurde wiederhergestellt.\n"
+                "Bitte starte das Skript neu.",
+            )
+            try:
+                root.destroy()
+            finally:
+                os._exit(0)
+
+    btn_keep = tk.Button(
+        btn_frame,
+        text="Weiter mit dieser Version",
+        font=("Arial", 11, "bold"),
+        bg="green",
+        fg="white",
+        activebackground="green",
+        activeforeground="white",
+        command=keep_current,
+    )
+    btn_keep.pack(side="left", padx=5)
+
+    btn_rollback = tk.Button(
+        btn_frame,
+        text="Zurück zur vorherigen Version",
+        font=("Arial", 10),
+        bg="red",
+        fg="white",
+        activebackground="red",
+        activeforeground="white",
+        command=do_rollback,
+    )
+    btn_rollback.pack(side="left", padx=5)
 
 config = load_config()
 
@@ -702,6 +836,12 @@ right_frame.pack(side="right", fill="y")
 # --- Buttons ---
 top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 top_frame.pack(side="top", fill="x", pady=5)
+
+middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+middle_frame.pack(fill="x", pady=5)
+
+bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+bottom_frame.pack(side="bottom", fill="x", pady=5)
 
 # Schloss-Anzeige: 🔒 = gesperrt (Temp/Tank nicht änderbar), 🔓 = in Config aufgeschlossen
 def update_lock_display():
@@ -1273,6 +1413,7 @@ load_data()
 draw_fuel_bar(fuel_liters, avg_consumption)
 update_visibility()
 update_time()
+show_post_update_dialog_if_needed()
 
 def apply_theme():
     """Aktuelles Farbschema auf Hauptfenster anwenden."""
