@@ -5,6 +5,7 @@ import time
 import shutil
 import logging
 import subprocess
+import json
 from datetime import datetime
 from urllib.request import urlopen
 
@@ -14,6 +15,7 @@ APP_NAME = "Sprit Dashboard"
 DASHBOARD_FILE = "sprit.py"
 BACKUP_DIR = "/home/pi/sprit_backups"
 LOG_FILE = "/home/pi/updater.log"
+UPDATE_STATE_FILE = "/home/pi/sprit_update_state.json"
 
 # Basis-URL des GitHub-Repos (Raw Files)
 BASE_RAW_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main"
@@ -115,6 +117,29 @@ def update_from_github() -> None:
     log("✔ Alle Dateien wurden von GitHub aktualisiert")
 
 
+def write_update_state() -> None:
+    """Schreibt eine kleine Statusdatei, damit das Dashboard nach Neustart
+    weiß, dass gerade ein Update durchgeführt wurde.
+    """
+    try:
+        version_path = os.path.join(APP_DIR, "version.txt")
+        new_version = None
+        if os.path.exists(version_path):
+            with open(version_path, "r", encoding="utf-8") as f:
+                new_version = (f.read().strip() or None)
+
+        state = {
+            "status": "updated",
+            "new_version": new_version,
+            "timestamp": datetime.now().isoformat(),
+        }
+        with open(UPDATE_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+        log(f"Update-State geschrieben: {UPDATE_STATE_FILE} (Version: {new_version})")
+    except Exception as e:
+        log(f"Update-State konnte nicht geschrieben werden: {e}")
+
+
 def start_dashboard() -> None:
     log("Starte Dashboard neu …")
     script_path = os.path.join(APP_DIR, DASHBOARD_FILE)
@@ -132,6 +157,7 @@ def main() -> None:
     check_internet()
     backup_dashboard()
     update_from_github()
+    write_update_state()
 
     log("✔ Update abgeschlossen")
     log("===================================")
