@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -31,7 +32,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.29"
+VERSION = "1.30"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -789,7 +790,11 @@ def reset_trip():
     global trip_liters, trip_distance, avg_consumption, fuel_liters
     global consumption_values, speed_values
     global trip_time
+    global trip_liters_tag, trip_distance_tag, avg_consumption_tag, avg_speed_tag
+    global consumption_values_tag, speed_values_tag, date_tag
+    global trip_time_tag
 
+    # Trip-Werte
     trip_liters = 0.0
     trip_distance = 0.0
     avg_consumption = 0.0
@@ -797,6 +802,16 @@ def reset_trip():
     consumption_values = []
     speed_values = []
     trip_time = 0.0
+
+    # Tageswerte
+    trip_liters_tag = 0.0
+    trip_distance_tag = 0.0
+    avg_consumption_tag = 0.0
+    avg_speed_tag = 0.0
+    consumption_values_tag = []
+    speed_values_tag = []
+    trip_time_tag = 0.0
+    date_tag = datetime.now(ZoneInfo("Europe/Berlin")).strftime("%Y-%m-%d")
 
     save_data()
     draw_fuel_bar(fuel_liters, avg_consumption)
