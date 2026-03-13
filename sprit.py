@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -32,7 +31,7 @@ fuel_capacity = 20.0
 reserve_liters = 5.0
 
 # --- Version & Update ---
-VERSION = "1.30"
+VERSION = "1.31"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -1231,21 +1230,25 @@ def update_gui():
 
 def _update_gui_impl():
     speed_label.config(text=f"Speed: {speed:.1f} km/h" if gps_fix else "Speed: -- km/h")
-    avg_speed_label.config(text=f"Ø km/h: {avg_speed:.1f} / {avg_speed_tag:.1f}")
+    # Anzeige: zuerst Tagesdurchschnitt, dann Gesamtdurchschnitt
+    avg_speed_label.config(text=f"Ø km/h: {avg_speed_tag:.1f} / {avg_speed:.1f}")
     l100_label.config(text=f"Verbrauch: {current_l100:.2f} l/100km")
-    avg_label.config(text=f"Ø: {avg_consumption:.2f} / {avg_consumption_tag:.2f} l/100km")
+    # Anzeige: zuerst Tagesdurchschnitt, dann Gesamtdurchschnitt
+    avg_label.config(text=f"Ø: {avg_consumption_tag:.2f} / {avg_consumption:.2f} l/100km")
 
     lh_label.config(text=f"l/h: {flow_rate:.2f}")
 
+    # Anzeige: zuerst Tageszeit (Tag), dann Gesamt-Tripzeit
     trip_time_label.config(
-        text=f"Trip Time: {format_time(trip_time)} | {format_time(trip_time_tag)}"
+        text=f"Trip Time: {format_time(trip_time_tag)} | {format_time(trip_time)}"
     )
 
     global last_temp_celsius_value, last_temp_celsius_time
     global last_temp_oil_value, last_temp_oil_time
     global last_display_oil_temp, last_display_oil_trend_symbol
 
-    distance_label.config(text=f"Trip km: {trip_distance:.2f} / {trip_distance_tag:.2f}")
+    # Anzeige: zuerst Tages-km, dann Gesamt-km
+    distance_label.config(text=f"Trip km: {trip_distance_tag:.2f} / {trip_distance:.2f}")
 
     now_ts = time.time()
     max_age = 15.0
