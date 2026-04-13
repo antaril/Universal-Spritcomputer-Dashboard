@@ -26,7 +26,7 @@ logging.info("Dashboard gestartet")
 
 # --- Konstanten ---
 FLOW_PIN = 12
-K_FACTOR = 40000
+K_FACTOR = 44000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 
