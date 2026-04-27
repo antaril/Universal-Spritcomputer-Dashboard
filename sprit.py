@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -29,9 +30,10 @@ FLOW_PIN = 12
 K_FACTOR = 37000
 fuel_capacity = 20.0
 reserve_liters = 5.0
+MAX_LOOP_DT_SECONDS = 5.0
 
 # --- Version & Update ---
-VERSION = "1.33"
+VERSION = "1.34"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -1222,6 +1224,16 @@ def format_time(seconds):
     m = (seconds % 3600) // 60
     return f"{h:02d}:{m:02d}"
 
+def sanitize_trip_time(value):
+    """Sorgt für robuste Zeitwerte aus Datei/Runtime."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(value) or value < 0:
+        return 0.0
+    return value
+
 def update_gui():
     try:
         _update_gui_impl()
@@ -1323,17 +1335,21 @@ def update_dashboard():
     global current_l100
     global last_gps_lat, last_gps_lon, current_lat, current_lon, gps_was_lost
 
-    last_time = time.time()
+    last_time = time.monotonic()
     last_pulse = 0
     save_counter = 0
 
     while True:
         time.sleep(1)
         read_temp()
-        now = time.time()
+        now = time.monotonic()
         dt = now - last_time
         if dt <= 0:
             dt = 1.0
+        elif dt > MAX_LOOP_DT_SECONDS:
+            # Schutz gegen große Sprünge (Thread-Hänger, Zeitkorrektur, Resume).
+            logging.warning(f"Zeitsprung erkannt (dt={dt:.2f}s), begrenze auf {MAX_LOOP_DT_SECONDS:.1f}s")
+            dt = MAX_LOOP_DT_SECONDS
         last_time = now
 
         with lock:
@@ -1343,10 +1359,13 @@ def update_dashboard():
         liters = pulses / K_FACTOR
         flow_rate = liters * 3600 / dt
 
-        # --- GPS Distanzberechnung und Tripzeit ---
+        # --- Trip-Zeit ---
+        # Zeit läuft kontinuierlich ab Dashboard-Start (auch im Stand).
+        trip_time += dt
+        trip_time_tag += dt
+
+        # --- GPS Distanzberechnung ---
         if gps_fix:
-            trip_time += dt
-            trip_time_tag += dt
 
             if gps_was_lost:
                 # Strecke nachholen: von letzter bekannter Position vor Ausfall
@@ -1442,6 +1461,8 @@ def update_dashboard():
 # --- Start ---
 _init_backlight()
 load_data()
+trip_time = sanitize_trip_time(trip_time)
+trip_time_tag = sanitize_trip_time(trip_time_tag)
 draw_fuel_bar(fuel_liters, avg_consumption)
 update_visibility()
 update_time()
