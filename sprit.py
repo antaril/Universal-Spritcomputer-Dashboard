@@ -27,13 +27,13 @@ logging.info("Dashboard gestartet")
 
 # --- Konstanten ---
 FLOW_PIN = 12
-K_FACTOR = 37000
+K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 MAX_LOOP_DT_SECONDS = 5.0
 
 # --- Version & Update ---
-VERSION = "1.34"
+VERSION = "1.35"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
