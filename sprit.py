@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -33,7 +32,7 @@ reserve_liters = 5.0
 MAX_LOOP_DT_SECONDS = 5.0
 
 # --- Version & Update ---
-VERSION = "1.35"
+VERSION = "1.36"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -858,19 +857,40 @@ middle_frame.pack(fill="x", pady=5)
 bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 bottom_frame.pack(side="bottom", fill="x", pady=5)
 
-# Schloss-Anzeige: "ZU" = gesperrt (Temp/Tank nicht änderbar), "AUF" = in Config aufgeschlossen
+# Schloss-Anzeige über Bilder: gesperrt/aufgeschlossen
+LOCK_CLOSED_IMG_PATH = os.path.join(APP_DIR, "schl-geschlossen.png")
+LOCK_OPEN_IMG_PATH = os.path.join(APP_DIR, "schl-offen.png")
+lock_closed_img = None
+lock_open_img = None
+
+try:
+    lock_closed_img = tk.PhotoImage(file=LOCK_CLOSED_IMG_PATH)
+except Exception as e:
+    logging.error(f"Konnte Schlossbild nicht laden ({LOCK_CLOSED_IMG_PATH}): {e}")
+
+try:
+    lock_open_img = tk.PhotoImage(file=LOCK_OPEN_IMG_PATH)
+except Exception as e:
+    logging.error(f"Konnte Schlossbild nicht laden ({LOCK_OPEN_IMG_PATH}): {e}")
+
 def update_lock_display():
     theme = get_theme_colors()
     locked = config.get("safety_lock", True)
-    lock_label.config(
-        text="ZU" if locked else "AUF",
-        bg=theme["bg_side"],
-        fg=theme["fg_text"],
-    )
+    current_img = lock_closed_img if locked else lock_open_img
+    if current_img is not None:
+        lock_label.config(image=current_img, text="", bg=theme["bg_side"])
+        lock_label.image = current_img
+    else:
+        lock_label.config(
+            image="",
+            text="ZU" if locked else "AUF",
+            bg=theme["bg_side"],
+            fg=theme["fg_text"],
+        )
 
 lock_label = tk.Label(
     top_frame,
-    text="ZU",
+    text="",
     font=("Arial", 20),
     bg=theme["bg_side"],
     fg=theme["fg_text"],
