@@ -32,7 +32,7 @@ reserve_liters = 5.0
 MAX_LOOP_DT_SECONDS = 5.0
 
 # --- Version & Update ---
-VERSION = "1.36"
+VERSION = "1.37"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -41,7 +41,13 @@ UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updat
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 UPDATE_STATE_FILE = "/home/pi/sprit_update_state.json"
 BACKUP_DIR = "/home/pi/sprit_backups"
-FILES_TO_UPDATE = ["sprit.py", "updater.py", "version.txt"]
+FILES_TO_UPDATE = [
+    "sprit.py",
+    "updater.py",
+    "version.txt",
+    "schl-geschlossen.png",
+    "schl-offen.png",
+]
 
 # --- Pfade ---
 TRIP_FILE = "/home/pi/trip_data.json"
@@ -1560,3 +1566,4 @@ apply_theme()
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
+
