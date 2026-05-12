@@ -25,6 +25,8 @@ FILES_TO_UPDATE = [
     "sprit.py",
     "updater.py",
     "version.txt",
+    "schl-geschlossen.png",
+    "schl-offen.png",
 ]
 
 # Verzeichnis, in dem sprit.py / updater.py liegen
@@ -165,3 +167,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
