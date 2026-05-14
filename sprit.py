@@ -1,3 +1,5 @@
+
+
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -30,9 +32,11 @@ K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 MAX_LOOP_DT_SECONDS = 5.0
+# Bis zum ersten GPS-Fix: Annahmegeschwindigkeit für Strecke / l/100km / Ø km/h
+NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.37"
+VERSION = "1.38"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -225,6 +229,9 @@ last_gps_lon = None
 current_lat = None
 current_lon = None
 gps_was_lost = False
+gps_had_valid_fix = False  # mindestens einmal Fix mit gültigen Koordinaten
+last_speed_with_fix_kmh = 0.0  # zuletzt bei gültigem Fix (für Tunnel / Ausfall)
+synthetic_distance_during_lost = False  # synthetische km ohne Fix → kein Haversine bei Wiederkehr
 
 # --- Config Setup ---
 default_config = {
@@ -1267,7 +1274,25 @@ def update_gui():
         pass  # Fenster bereits geschlossen
 
 def _update_gui_impl():
-    speed_label.config(text=f"Speed: {speed:.1f} km/h" if gps_fix else "Speed: -- km/h")
+    theme = get_theme_colors()
+    if gps_fix:
+        speed_label.config(
+            text=f"Speed: {speed:.1f} km/h",
+            fg=theme["fg_speed"],
+            bg=theme["bg_panel"],
+        )
+    elif not gps_had_valid_fix:
+        speed_label.config(
+            text=f"Speed: {NO_GPS_ASSUMED_SPEED_KMH:.1f} km/h (ohne GPS)",
+            fg="yellow",
+            bg=theme["bg_panel"],
+        )
+    else:
+        speed_label.config(
+            text=f"Speed: {last_speed_with_fix_kmh:.1f} km/h (letzte)",
+            fg=theme["fg_speed"],
+            bg=theme["bg_panel"],
+        )
     # Anzeige: zuerst Tagesdurchschnitt, dann Gesamtdurchschnitt
     avg_speed_label.config(text=f"Ø km/h: {avg_speed_tag:.1f} / {avg_speed:.1f}")
     l100_label.config(text=f"Verbrauch: {current_l100:.2f} l/100km")
@@ -1330,7 +1355,6 @@ def _update_gui_impl():
     oil_display = oil_str + last_display_oil_trend_symbol
 
     # Farbgebung je nach Öltemperatur
-    theme = get_theme_colors()
     oil_color = theme["fg_accent"]
     if oil_val is not None:
         if oil_val >= 110:
@@ -1360,6 +1384,8 @@ def update_dashboard():
     global volt_value
     global current_l100
     global last_gps_lat, last_gps_lon, current_lat, current_lon, gps_was_lost
+    global gps_had_valid_fix
+    global last_speed_with_fix_kmh, synthetic_distance_during_lost
 
     last_time = time.monotonic()
     last_pulse = 0
@@ -1390,16 +1416,28 @@ def update_dashboard():
         trip_time += dt
         trip_time_tag += dt
 
+        if gps_fix and current_lat is not None and current_lon is not None:
+            gps_had_valid_fix = True
+
+        if gps_fix:
+            calc_speed = speed
+        elif not gps_had_valid_fix:
+            calc_speed = NO_GPS_ASSUMED_SPEED_KMH
+        else:
+            calc_speed = last_speed_with_fix_kmh
+
         # --- GPS Distanzberechnung ---
         if gps_fix:
 
             if gps_was_lost:
-                # Strecke nachholen: von letzter bekannter Position vor Ausfall
-                if last_gps_lat is not None and last_gps_lon is not None and current_lat is not None and current_lon is not None:
-                    dist = haversine(last_gps_lat, last_gps_lon, current_lat, current_lon)
-                    dist = min(dist, 5.0)  # Ausreißer verhindern
-                    trip_distance += dist
-                    trip_distance_tag += dist
+                # Strecke nachholen per Haversine nur wenn ohne synthetische km (sonst Doppelzählung)
+                if not synthetic_distance_during_lost:
+                    if last_gps_lat is not None and last_gps_lon is not None and current_lat is not None and current_lon is not None:
+                        dist = haversine(last_gps_lat, last_gps_lon, current_lat, current_lon)
+                        dist = min(dist, 5.0)  # Ausreißer verhindern
+                        trip_distance += dist
+                        trip_distance_tag += dist
+                synthetic_distance_during_lost = False
                 gps_was_lost = False
 
             # Normale Distanz über Geschwindigkeit
@@ -1410,14 +1448,19 @@ def update_dashboard():
             # Letzte GPS-Position speichern
             last_gps_lat = current_lat
             last_gps_lon = current_lon
+            last_speed_with_fix_kmh = speed
 
         else:
             # GPS fehlt → markieren, dass GPS verloren ging
             gps_was_lost = True
+            if calc_speed > 1.0:
+                trip_distance += calc_speed * dt / 3600
+                trip_distance_tag += calc_speed * dt / 3600
+                synthetic_distance_during_lost = True
 
         # --- Verbrauch pro 100 km (nur bei sinnvoller Fahrt) ---
-        if speed >= 8 and trip_distance >= 0.1:
-            current_l100 = (flow_rate / speed) * 100
+        if calc_speed >= 8 and trip_distance >= 0.1:
+            current_l100 = (flow_rate / calc_speed) * 100
 
             # harte Ausreißer ignorieren
             if 0 < current_l100 < 50:
@@ -1450,12 +1493,12 @@ def update_dashboard():
             avg_consumption_tag = 0
 
         # Geschwindigkeit für Durchschnitt (nur bei Fahrt)
-        if speed >= 8:
-            speed_values.append(speed)
+        if calc_speed >= 8:
+            speed_values.append(calc_speed)
             if len(speed_values) > 300:
                 speed_values.pop(0)
 
-            speed_values_tag.append(speed)
+            speed_values_tag.append(calc_speed)
             if len(speed_values_tag) > 300:
                 speed_values_tag.pop(0)
 
@@ -1508,7 +1551,8 @@ def apply_theme():
     fuel_canvas.configure(bg=theme["bg_root"])
     # Haupt-Labels anpassen
     sat_label.configure(bg=theme["bg_side"], fg=theme["fg_warning"])
-    speed_label.configure(bg=theme["bg_panel"], fg=theme["fg_speed"])
+    sl_fg = "yellow" if (not gps_fix and not gps_had_valid_fix) else theme["fg_speed"]
+    speed_label.configure(bg=theme["bg_panel"], fg=sl_fg)
     avg_speed_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     l100_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
     avg_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
@@ -1566,4 +1610,3 @@ apply_theme()
 threading.Thread(target=read_gps, daemon=True).start()
 threading.Thread(target=update_dashboard, daemon=True).start()
 root.mainloop()
-
