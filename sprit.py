@@ -1,5 +1,3 @@
-
-
 #!/usr/bin/env python3
 import tkinter as tk
 from tkinter import messagebox
@@ -36,7 +34,7 @@ MAX_LOOP_DT_SECONDS = 5.0
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.38"
+VERSION = "1.39"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -873,18 +871,25 @@ bottom_frame.pack(side="bottom", fill="x", pady=5)
 # Schloss-Anzeige über Bilder: gesperrt/aufgeschlossen
 LOCK_CLOSED_IMG_PATH = os.path.join(APP_DIR, "schl-geschlossen.png")
 LOCK_OPEN_IMG_PATH = os.path.join(APP_DIR, "schl-offen.png")
+LOCK_ICON_SCALE = 3
 lock_closed_img = None
 lock_open_img = None
 
-try:
-    lock_closed_img = tk.PhotoImage(file=LOCK_CLOSED_IMG_PATH)
-except Exception as e:
-    logging.error(f"Konnte Schlossbild nicht laden ({LOCK_CLOSED_IMG_PATH}): {e}")
 
-try:
-    lock_open_img = tk.PhotoImage(file=LOCK_OPEN_IMG_PATH)
-except Exception as e:
-    logging.error(f"Konnte Schlossbild nicht laden ({LOCK_OPEN_IMG_PATH}): {e}")
+def _load_lock_photo(path, scale=LOCK_ICON_SCALE):
+    """PNG laden und für schwarzen Hintergrund vergrößern (Symbole sind hell)."""
+    try:
+        img = tk.PhotoImage(file=path)
+        if scale > 1:
+            img = img.zoom(scale, scale)
+        return img
+    except Exception as e:
+        logging.error(f"Konnte Schlossbild nicht laden ({path}): {e}")
+        return None
+
+
+lock_closed_img = _load_lock_photo(LOCK_CLOSED_IMG_PATH)
+lock_open_img = _load_lock_photo(LOCK_OPEN_IMG_PATH)
 
 def update_lock_display():
     theme = get_theme_colors()
@@ -1251,6 +1256,19 @@ def update_visibility():
         sat_label.pack_forget()
 
 
+def _display_speed_kmh():
+    """Angezeigte km/h und ob Annahme 59,5 ohne GPS-Fix (gelb/warning)."""
+    if gps_fix:
+        return speed, False
+    if not gps_had_valid_fix:
+        return NO_GPS_ASSUMED_SPEED_KMH, True
+    return last_speed_with_fix_kmh, False
+
+
+def _speed_label_fg(theme, use_assumed_speed):
+    return theme["fg_warning"] if use_assumed_speed else theme["fg_speed"]
+
+
 def format_time(seconds):
     seconds = int(seconds)
     h = seconds // 3600
@@ -1275,24 +1293,12 @@ def update_gui():
 
 def _update_gui_impl():
     theme = get_theme_colors()
-    if gps_fix:
-        speed_label.config(
-            text=f"Speed: {speed:.1f} km/h",
-            fg=theme["fg_speed"],
-            bg=theme["bg_panel"],
-        )
-    elif not gps_had_valid_fix:
-        speed_label.config(
-            text=f"Speed: {NO_GPS_ASSUMED_SPEED_KMH:.1f} km/h (ohne GPS)",
-            fg="yellow",
-            bg=theme["bg_panel"],
-        )
-    else:
-        speed_label.config(
-            text=f"Speed: {last_speed_with_fix_kmh:.1f} km/h (letzte)",
-            fg=theme["fg_speed"],
-            bg=theme["bg_panel"],
-        )
+    disp_speed, assumed = _display_speed_kmh()
+    speed_label.config(
+        text=f"Speed: {disp_speed:.1f} km/h",
+        fg=_speed_label_fg(theme, assumed),
+        bg=theme["bg_panel"],
+    )
     # Anzeige: zuerst Tagesdurchschnitt, dann Gesamtdurchschnitt
     avg_speed_label.config(text=f"Ø km/h: {avg_speed_tag:.1f} / {avg_speed:.1f}")
     l100_label.config(text=f"Verbrauch: {current_l100:.2f} l/100km")
@@ -1551,8 +1557,12 @@ def apply_theme():
     fuel_canvas.configure(bg=theme["bg_root"])
     # Haupt-Labels anpassen
     sat_label.configure(bg=theme["bg_side"], fg=theme["fg_warning"])
-    sl_fg = "yellow" if (not gps_fix and not gps_had_valid_fix) else theme["fg_speed"]
-    speed_label.configure(bg=theme["bg_panel"], fg=sl_fg)
+    disp_speed, assumed = _display_speed_kmh()
+    speed_label.configure(
+        bg=theme["bg_panel"],
+        fg=_speed_label_fg(theme, assumed),
+        text=f"Speed: {disp_speed:.1f} km/h",
+    )
     avg_speed_label.configure(bg=theme["bg_panel"], fg=theme["fg_text"])
     l100_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
     avg_label.configure(bg=theme["bg_panel"], fg=theme["fg_consumption"])
