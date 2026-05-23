@@ -30,11 +30,11 @@ K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 MAX_LOOP_DT_SECONDS = 5.0
-# Bis zum ersten GPS-Fix: Annahmegeschwindigkeit für Strecke / l/100km / Ø km/h
+# Nur ohne GPS und ohne bekannte Ø-/Letztgeschwindigkeit (Kaltstart)
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.39"
+VERSION = "1.40"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -511,7 +511,8 @@ def save_data():
         "speed_values_tag": speed_values_tag,
         "date": date_tag,
         "trip_time": trip_time,
-        "trip_time_tag": trip_time_tag
+        "trip_time_tag": trip_time_tag,
+        "last_speed_with_fix_kmh": last_speed_with_fix_kmh,
     }
 
     try:
@@ -541,6 +542,7 @@ def load_data():
     global consumption_values, consumption_values_tag
     global speed_values, speed_values_tag, date_tag
     global trip_time, trip_time_tag
+    global avg_speed, avg_speed_tag, last_speed_with_fix_kmh
 
     def load_from(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -665,6 +667,11 @@ def load_data():
     date_tag = data.get("date", date_tag)
     trip_time = data.get("trip_time", 0.0)
     trip_time_tag = data.get("trip_time_tag", 0.0)
+    avg_speed = sum(speed_values) / len(speed_values) if speed_values else 0.0
+    avg_speed_tag = sum(speed_values_tag) / len(speed_values_tag) if speed_values_tag else 0.0
+    last_speed_with_fix_kmh = float(data.get("last_speed_with_fix_kmh", 0.0) or 0.0)
+    if last_speed_with_fix_kmh <= 0 and speed_values:
+        last_speed_with_fix_kmh = speed_values[-1]
 
     # Wenn aus Backup geladen: Hauptdatei sofort reparieren (gültige Daten zurückschreiben)
     if loaded_from_backup:
@@ -804,6 +811,7 @@ def reset_trip():
     global trip_liters_tag, trip_distance_tag, avg_consumption_tag, avg_speed_tag
     global consumption_values_tag, speed_values_tag, date_tag
     global trip_time_tag
+    global avg_speed, last_speed_with_fix_kmh
 
     # Trip-Werte
     trip_liters = 0.0
@@ -813,6 +821,8 @@ def reset_trip():
     consumption_values = []
     speed_values = []
     trip_time = 0.0
+    avg_speed = 0.0
+    last_speed_with_fix_kmh = 0.0
 
     # Tageswerte
     trip_liters_tag = 0.0
@@ -1256,17 +1266,54 @@ def update_visibility():
         sat_label.pack_forget()
 
 
+def _known_avg_speed_kmh():
+    """Bekannte Durchschnittsgeschwindigkeit (Trip, Tag oder gespeicherte Samples)."""
+    if avg_speed > 0:
+        return avg_speed
+    if avg_speed_tag > 0:
+        return avg_speed_tag
+    if speed_values:
+        return sum(speed_values) / len(speed_values)
+    if speed_values_tag:
+        return sum(speed_values_tag) / len(speed_values_tag)
+    return 0.0
+
+
+def _speed_without_gps_fix():
+    """km/h ohne aktuellen GPS-Fix (Anzeige + Berechnung)."""
+    if gps_had_valid_fix and last_speed_with_fix_kmh > 0:
+        return last_speed_with_fix_kmh
+    known_avg = _known_avg_speed_kmh()
+    if known_avg > 0:
+        return known_avg
+    return NO_GPS_ASSUMED_SPEED_KMH
+
+
+def _calc_speed_kmh():
+    """Geschwindigkeit für Strecke, Verbrauch und Ø-Berechnung."""
+    if gps_fix:
+        return speed
+    return _speed_without_gps_fix()
+
+
 def _display_speed_kmh():
-    """Angezeigte km/h und ob Annahme 59,5 ohne GPS-Fix (gelb/warning)."""
+    """Angezeigte km/h; gelb sobald kein aktueller GPS-Fix."""
     if gps_fix:
         return speed, False
-    if not gps_had_valid_fix:
-        return NO_GPS_ASSUMED_SPEED_KMH, True
-    return last_speed_with_fix_kmh, False
+    return _speed_without_gps_fix(), True
 
 
 def _speed_label_fg(theme, use_assumed_speed):
     return theme["fg_warning"] if use_assumed_speed else theme["fg_speed"]
+
+
+def _sat_label_fg(theme):
+    """Farbe für Sat-Anzeige nach Anzahl sichtbarer Satelliten (sat_seen)."""
+    if sat_seen <= 0:
+        return theme["fg_danger"]
+    if sat_seen < 5:
+        return theme["fg_warning"]
+    return theme["fuel_main_high"]
 
 
 def format_time(seconds):
@@ -1377,7 +1424,10 @@ def _update_gui_impl():
     )
 
     volt_label.config(text=f"Volt: {volt_value:.2f} V" if volt_value is not None else "Volt: --")
-    sat_label.config(text=f"Sat : {sat_used}/{sat_seen}")
+    sat_label.config(
+        text=f"Sat : {sat_used}/{sat_seen}",
+        fg=_sat_label_fg(theme),
+    )
     draw_fuel_bar(fuel_liters, avg_consumption)
 
 def update_dashboard():
@@ -1425,12 +1475,7 @@ def update_dashboard():
         if gps_fix and current_lat is not None and current_lon is not None:
             gps_had_valid_fix = True
 
-        if gps_fix:
-            calc_speed = speed
-        elif not gps_had_valid_fix:
-            calc_speed = NO_GPS_ASSUMED_SPEED_KMH
-        else:
-            calc_speed = last_speed_with_fix_kmh
+        calc_speed = _calc_speed_kmh()
 
         # --- GPS Distanzberechnung ---
         if gps_fix:
@@ -1556,7 +1601,7 @@ def apply_theme():
     time_label.configure(bg=theme["bg_root"], fg=theme["fg_text"])
     fuel_canvas.configure(bg=theme["bg_root"])
     # Haupt-Labels anpassen
-    sat_label.configure(bg=theme["bg_side"], fg=theme["fg_warning"])
+    sat_label.configure(bg=theme["bg_side"], fg=_sat_label_fg(theme))
     disp_speed, assumed = _display_speed_kmh()
     speed_label.configure(
         bg=theme["bg_panel"],
