@@ -34,7 +34,7 @@ MAX_LOOP_DT_SECONDS = 5.0
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.40"
+VERSION = "1.42"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -246,7 +246,7 @@ default_config = {
     "show_day_time": True,
     "temp_swapped": False,
     "night_mode": False,
-    "safety_lock": True,  # True = gesperrt (Temp-Swap & Tankfüllung nicht änderbar)
+    "safety_lock": True,  # True = gesperrt; nur Klick auf Schloss-Symbol schaltet um
 }
 
 def load_config():
@@ -869,14 +869,29 @@ right_frame = tk.Frame(frame_dashboard, bg=theme["bg_root"])
 right_frame.pack(side="right", fill="y")
 
 # --- Buttons ---
+lock_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+lock_frame.pack(side="top", fill="x", pady=(8, 0))
+
 top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-top_frame.pack(side="top", fill="x", pady=5)
+top_frame.pack(side="top", fill="x", pady=(18, 5))
 
 middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 middle_frame.pack(fill="x", pady=5)
 
 bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 bottom_frame.pack(side="bottom", fill="x", pady=5)
+
+
+def is_safety_locked():
+    return config.get("safety_lock", True)
+
+
+def toggle_safety_lock(event=None):
+    """Schloss-Symbol antippen: gesperrt ↔ aufgeschlossen."""
+    config["safety_lock"] = not is_safety_locked()
+    save_config()
+    update_lock_display()
+
 
 # Schloss-Anzeige über Bilder: gesperrt/aufgeschlossen
 LOCK_CLOSED_IMG_PATH = os.path.join(APP_DIR, "schl-geschlossen.png")
@@ -917,14 +932,35 @@ def update_lock_display():
         )
 
 lock_label = tk.Label(
-    top_frame,
+    lock_frame,
     text="",
     font=("Arial", 20),
     bg=theme["bg_side"],
     fg=theme["fg_text"],
+    cursor="hand2",
 )
-lock_label.pack(pady=(0, 4))
+lock_label.pack(pady=(4, 8))
+lock_label.bind("<Button-1>", toggle_safety_lock)
 update_lock_display()
+
+
+def guarded_day_reset():
+    if is_safety_locked():
+        return
+    day_reset()
+
+
+def guarded_reset_trip():
+    if is_safety_locked():
+        return
+    reset_trip()
+
+
+def guarded_open_config():
+    if is_safety_locked():
+        return
+    open_config()
+
 
 btn_day_reset = tk.Button(
     top_frame,
@@ -935,16 +971,16 @@ btn_day_reset = tk.Button(
     activebackground="orange",
     activeforeground="black",
     highlightthickness=0,
-    command=day_reset,
+    command=guarded_day_reset,
 )
 btn_day_reset.pack(pady=5, padx=5)
+
 
 def toggle_block(key, var):
     config[key] = var.get()
     save_config()
     update_visibility()
-    if key == "safety_lock":
-        update_lock_display()
+
 
 def open_config():
     cfg_win = tk.Toplevel(root)
@@ -1040,22 +1076,6 @@ def open_config():
     )
     night_cb.pack(anchor="w", pady=(8, 2))
 
-    # Sperre (Schloss) rechts unter Nachtmodus
-    safety_var = tk.BooleanVar(value=config.get("safety_lock", default_config["safety_lock"]))
-    safety_cb = tk.Checkbutton(
-        right_col,
-        text="Temp & Tank sperren",
-        variable=safety_var,
-        command=lambda k="safety_lock", v=safety_var: toggle_block(k, v),
-        font=("Arial", 10),
-        bg=theme["bg_panel"],
-        fg=theme["fg_text"],
-        selectcolor=theme["bg_side"],
-        activebackground=theme["bg_panel"],
-        activeforeground=theme["fg_text"],
-    )
-    safety_cb.pack(anchor="w", pady=(2, 2))
-
     # Helligkeitseinstellung wurde entfernt, da sie hardwareseitig nicht zuverlässig funktioniert.
 
 btn_config = tk.Button(
@@ -1067,7 +1087,7 @@ btn_config = tk.Button(
     activebackground="blue",
     activeforeground="white",
     highlightthickness=0,
-    command=open_config,
+    command=guarded_open_config,
 )
 btn_config.pack(pady=5, padx=5)
 
@@ -1080,7 +1100,7 @@ btn_reset_trip = tk.Button(
     activebackground="red",
     activeforeground="white",
     highlightthickness=0,
-    command=reset_trip,
+    command=guarded_reset_trip,
 )
 btn_reset_trip.pack(pady=5, padx=5)
 
@@ -1122,8 +1142,8 @@ distance_label = tk.Label(center_frame, text="Trip km: 0.00 / 0.00", font=("Aria
 distance_label.grid(row=6, column=0, pady=2)
 
 def on_temp_click():
-    """Klick auf Temperaturzeile: Anzeige Aussen ↔ Öl tauschen (nur wenn nicht gesperrt)."""
-    if config.get("safety_lock", True):
+    """Klick auf Temperaturzeile: Anzeige Aussen ↔ Öl tauschen (nur wenn Schloss offen)."""
+    if is_safety_locked():
         return
     config["temp_swapped"] = not config.get("temp_swapped", False)
     save_config()
@@ -1150,7 +1170,7 @@ def draw_fuel_bar(level, avg_consumption):
     theme = get_theme_colors()
 
     now = time.time()
-    if now - last_toggle_time >= 5:   # alle 5 Sekunden umschalten
+    if now - last_toggle_time >= 2:   # alle 2 Sekunden umschalten
         toggle_display_counter += 1
         last_toggle_time = now
 
@@ -1210,7 +1230,7 @@ def draw_fuel_bar(level, avg_consumption):
                             text=text_reserve, fill=text_color, font=("Arial", 12, "bold"))
 
 def on_fuel_click(event=None):
-    if config.get("safety_lock", True):
+    if is_safety_locked():
         return
     global fuel_liters
     fuel_liters -= 2.5
