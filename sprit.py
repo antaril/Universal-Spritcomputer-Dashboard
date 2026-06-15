@@ -29,12 +29,13 @@ FLOW_PIN = 12
 K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
+FUEL_DISPLAY_TOGGLE_SECONDS = 2.0
 MAX_LOOP_DT_SECONDS = 5.0
 # Nur ohne GPS und ohne bekannte Ø-/Letztgeschwindigkeit (Kaltstart)
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.43"
+VERSION = "1.44"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -892,8 +893,8 @@ left_frame.pack(side="left", fill="y", padx=(0, 4))
 center_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=12, pady=10)
 center_frame.pack(side="left", expand=True, fill="both", padx=4)
 center_frame.grid_columnconfigure(0, weight=1)
-right_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=8, pady=10)
-right_frame.pack(side="right", fill="y", padx=(4, 0))
+right_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=6, pady=4)
+right_frame.pack(side="right", fill="y", padx=(4, 2))
 
 # --- Buttons ---
 lock_frame = tk.Frame(left_frame, bg=theme["bg_side"])
@@ -1206,19 +1207,28 @@ temp_label = tk.Button(
 temp_label.grid(row=7, column=0, pady=2)
 
 # --- Fuel Canvas ---
-date_label = tk.Label(right_frame, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_card"])
-date_label.pack(anchor="ne", pady=(5, 0), padx=5)
-time_label = tk.Label(right_frame, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_card"])
-time_label.pack(anchor="ne", pady=(0, 5), padx=5)
-fuel_canvas = tk.Canvas(right_frame, width=60, bg=theme["bg_card"], highlightthickness=0)
-fuel_canvas.pack(fill="y", expand=True)
+right_header = tk.Frame(right_frame, bg=theme["bg_card"])
+right_header.pack(side="top", fill="x", padx=2, pady=(2, 0))
+
+date_label = tk.Label(right_header, text="", font=("Arial", 13), fg=theme["fg_text"], bg=theme["bg_card"])
+date_label.pack(anchor="e", padx=2)
+time_label = tk.Label(right_header, text="", font=("Arial", 13), fg=theme["fg_text"], bg=theme["bg_card"])
+time_label.pack(anchor="e", padx=2, pady=(0, 2))
+
+fuel_container = tk.Frame(right_frame, bg=theme["bg_card"])
+fuel_container.pack(side="top", fill="both", expand=True, padx=2, pady=(2, 10))
+
+fuel_canvas = tk.Canvas(fuel_container, width=64, bg=theme["bg_card"], highlightthickness=0)
+fuel_canvas.pack(fill="both", expand=True)
 
 def draw_fuel_bar(level, avg_consumption):
     global toggle_display_counter, last_toggle_time
     theme = get_theme_colors()
 
     now = time.time()
-    if now - last_toggle_time >= 2:   # alle 2 Sekunden umschalten
+    if last_toggle_time == 0:
+        last_toggle_time = now
+    elif now - last_toggle_time >= FUEL_DISPLAY_TOGGLE_SECONDS:
         toggle_display_counter += 1
         last_toggle_time = now
 
@@ -1230,13 +1240,21 @@ def draw_fuel_bar(level, avg_consumption):
         fuel_canvas.after(100, lambda: draw_fuel_bar(level, avg_consumption))
         return
 
+    margin_x = 3
+    margin_y = 6
+    bar_width = max(1, width - 2 * margin_x)
+    bar_height = max(1, height - 2 * margin_y)
+    bar_left = margin_x
+    bar_right = margin_x + bar_width
+    bar_bottom = margin_y + bar_height
+
     total_capacity = fuel_capacity + reserve_liters
     level = max(0, min(level, total_capacity))
-    total_height = int(height * (level / total_capacity))
-    reserve_height = int(height * (reserve_liters / total_capacity))
+    total_height = int(bar_height * (level / total_capacity))
+    reserve_height = int(bar_height * (reserve_liters / total_capacity))
     main_height = max(0, total_height - reserve_height)
-    y0_main = height - total_height
-    y0_reserve = height - reserve_height
+    y0_main = bar_bottom - total_height
+    y0_reserve = bar_bottom - reserve_height
 
     color_reserve = theme.get("fuel_reserve", "orange")
     if level > reserve_liters:
@@ -1257,9 +1275,12 @@ def draw_fuel_bar(level, avg_consumption):
         text_color = "white" if color_main != theme.get("fuel_main_mid", "#D9A800") else "black"
 
     if level > reserve_liters:
-        fuel_canvas.create_rectangle(0, y0_main, width, y0_reserve, fill=color_main, outline="white")
-    fuel_canvas.create_rectangle(0, y0_reserve, width, height, fill=color_reserve, outline="white")
-
+        fuel_canvas.create_rectangle(
+            bar_left, y0_main, bar_right, y0_reserve, fill=color_main, outline="white"
+        )
+    fuel_canvas.create_rectangle(
+        bar_left, y0_reserve, bar_right, bar_bottom, fill=color_reserve, outline="white"
+    )
 
     if toggle_display_counter % 2 == 0:
         text_main = f"{max(level - reserve_liters, 0):.1f} l"
@@ -1271,10 +1292,23 @@ def draw_fuel_bar(level, avg_consumption):
         text_main = f"{int(range_main)} km"
         text_reserve = f"{int(range_reserve)} km"
 
-    fuel_canvas.create_text(width // 2, y0_main + main_height // 2,
-                            text=text_main, fill=text_color, font=("Arial", 12, "bold"))
-    fuel_canvas.create_text(width // 2, y0_reserve + reserve_height // 2,
-                            text=text_reserve, fill=text_color, font=("Arial", 12, "bold"))
+    text_x = bar_left + bar_width // 2
+    if main_height > 14:
+        fuel_canvas.create_text(
+            text_x,
+            y0_main + main_height // 2,
+            text=text_main,
+            fill=text_color,
+            font=("Arial", 11, "bold"),
+        )
+    if reserve_height > 14:
+        fuel_canvas.create_text(
+            text_x,
+            y0_reserve + reserve_height // 2,
+            text=text_reserve,
+            fill=text_color,
+            font=("Arial", 11, "bold"),
+        )
 
 def on_fuel_click(event=None):
     if is_safety_locked():
@@ -1664,6 +1698,8 @@ def apply_theme():
     frame_dashboard.configure(bg=theme["bg_root"])
     for card in (left_frame, center_frame, right_frame):
         card.configure(bg=card_bg)
+    right_header.configure(bg=card_bg)
+    fuel_container.configure(bg=card_bg)
     for frame in (lock_frame, top_frame, middle_frame, bottom_frame):
         frame.configure(bg=card_bg)
     version_label.configure(bg=theme["bg_root"], fg=theme["fg_muted"])
