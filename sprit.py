@@ -38,7 +38,7 @@ MAX_LOOP_DT_SECONDS = 5.0
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.45"
+VERSION = "1.46"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -906,18 +906,21 @@ right_frame = tk.Frame(
 right_frame.pack(side="right", fill="y", padx=(3, 4))
 right_frame.pack_propagate(False)
 
-# --- Buttons ---
+# --- Linke Seitenleiste: Schloss oben, Dayreset darunter, Config mittig, Reset unten ---
+bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+bottom_frame.pack(side="bottom", fill="x", pady=(0, 6))
+
 lock_frame = tk.Frame(left_frame, bg=theme["bg_side"])
 lock_frame.pack(side="top", fill="x", pady=(4, 0))
 
-top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-top_frame.pack(side="top", fill="x", pady=(6, 2))
+dayreset_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+dayreset_frame.pack(side="top", fill="x", pady=(16, 0))
 
-middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-middle_frame.pack(fill="x", pady=2)
-
-bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-bottom_frame.pack(side="bottom", fill="x", pady=2)
+center_actions_frame = tk.Frame(left_frame, bg=theme["bg_side"])
+center_actions_frame.pack(side="top", fill="both", expand=True)
+center_actions_frame.grid_rowconfigure(0, weight=1)
+center_actions_frame.grid_rowconfigure(2, weight=1)
+center_actions_frame.grid_columnconfigure(0, weight=1)
 
 
 def is_safety_locked():
@@ -1000,11 +1003,11 @@ def guarded_open_config():
 
 
 btn_day_reset = tk.Button(
-    top_frame,
+    dayreset_frame,
     text="Dayreset",
     command=guarded_day_reset,
 )
-btn_day_reset.pack(pady=2, padx=2)
+btn_day_reset.pack(pady=4, padx=2)
 style_dashboard_button(btn_day_reset)
 
 
@@ -1111,20 +1114,12 @@ def open_config():
     # Helligkeitseinstellung wurde entfernt, da sie hardwareseitig nicht zuverlässig funktioniert.
 
 btn_config = tk.Button(
-    middle_frame,
+    center_actions_frame,
     text="Config",
     command=guarded_open_config,
 )
-btn_config.pack(pady=2, padx=2)
+btn_config.grid(row=1, column=0, pady=4, padx=2)
 style_dashboard_button(btn_config)
-
-btn_reset_trip = tk.Button(
-    bottom_frame,
-    text="Reset",
-    command=guarded_reset_trip,
-)
-btn_reset_trip.pack(pady=2, padx=2)
-style_dashboard_button(btn_reset_trip)
 
 sat_label = tk.Label(
     bottom_frame,
@@ -1133,7 +1128,15 @@ sat_label = tk.Label(
     fg=theme["fg_warning"],
     bg=theme["bg_side"],
 )
-sat_label.pack(pady=2, padx=2)
+sat_label.pack(pady=(2, 8), padx=2)
+
+btn_reset_trip = tk.Button(
+    bottom_frame,
+    text="Reset",
+    command=guarded_reset_trip,
+)
+btn_reset_trip.pack(side="bottom", pady=(0, 2), padx=2)
+style_dashboard_button(btn_reset_trip)
 
 # --- Labels im center_frame ---
 speed_label = tk.Label(
@@ -1374,9 +1377,9 @@ def update_visibility():
         else:
             widget.grid_remove()
 
-    # Sat-Anzeige links (pack)
+    # Sat-Anzeige links (pack, oberhalb Reset)
     if config.get("show_sat", True):
-        sat_label.pack(pady=2, padx=2)
+        sat_label.pack(before=btn_reset_trip, pady=(2, 8), padx=2)
     else:
         sat_label.pack_forget()
 
@@ -1714,7 +1717,7 @@ def apply_theme():
         card.configure(bg=card_bg)
     right_header.configure(bg=card_bg)
     fuel_container.configure(bg=card_bg)
-    for frame in (lock_frame, top_frame, middle_frame, bottom_frame):
+    for frame in (lock_frame, dayreset_frame, center_actions_frame, bottom_frame):
         frame.configure(bg=card_bg)
     version_label.configure(bg=theme["bg_root"], fg=theme["fg_muted"])
     date_label.configure(bg=card_bg, fg=theme["fg_text"])
