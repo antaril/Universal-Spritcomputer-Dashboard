@@ -30,12 +30,15 @@ K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 FUEL_DISPLAY_TOGGLE_SECONDS = 2.0
+RIGHT_COLUMN_WIDTH = 100
+FUEL_CANVAS_WIDTH = 92
+LOCK_ICON_SCALE = 2
 MAX_LOOP_DT_SECONDS = 5.0
 # Nur ohne GPS und ohne bekannte Ø-/Letztgeschwindigkeit (Kaltstart)
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.44"
+VERSION = "1.45"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
@@ -799,10 +802,10 @@ def get_theme_colors():
 
 
 def style_dashboard_button(btn):
-    """Einheitliche Pill-Buttons für das Dashboard."""
+    """Kompakte Pill-Buttons für die linke Seitenleiste."""
     theme = get_theme_colors()
     btn.configure(
-        font=("Arial", 11, "bold"),
+        font=("Arial", 10, "bold"),
         bg=theme["btn_bg"],
         fg=theme["btn_fg"],
         activebackground=theme["btn_active_bg"],
@@ -810,8 +813,8 @@ def style_dashboard_button(btn):
         relief="flat",
         borderwidth=0,
         highlightthickness=0,
-        padx=14,
-        pady=5,
+        padx=6,
+        pady=3,
         cursor="hand2",
     )
 
@@ -888,26 +891,33 @@ def on_exit():
     root.destroy()
 
 # --- Frames (Karten-Layout) ---
-left_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=8, pady=10)
-left_frame.pack(side="left", fill="y", padx=(0, 4))
-center_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=12, pady=10)
-center_frame.pack(side="left", expand=True, fill="both", padx=4)
+left_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=4, pady=6)
+left_frame.pack(side="left", fill="y", padx=(0, 3))
+center_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=8, pady=8)
+center_frame.pack(side="left", expand=True, fill="both", padx=3)
 center_frame.grid_columnconfigure(0, weight=1)
-right_frame = tk.Frame(frame_dashboard, bg=theme["bg_card"], padx=6, pady=4)
-right_frame.pack(side="right", fill="y", padx=(4, 2))
+right_frame = tk.Frame(
+    frame_dashboard,
+    bg=theme["bg_card"],
+    width=RIGHT_COLUMN_WIDTH,
+    padx=4,
+    pady=4,
+)
+right_frame.pack(side="right", fill="y", padx=(3, 4))
+right_frame.pack_propagate(False)
 
 # --- Buttons ---
 lock_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-lock_frame.pack(side="top", fill="x", pady=(8, 0))
+lock_frame.pack(side="top", fill="x", pady=(4, 0))
 
 top_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-top_frame.pack(side="top", fill="x", pady=(18, 5))
+top_frame.pack(side="top", fill="x", pady=(6, 2))
 
 middle_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-middle_frame.pack(fill="x", pady=5)
+middle_frame.pack(fill="x", pady=2)
 
 bottom_frame = tk.Frame(left_frame, bg=theme["bg_side"])
-bottom_frame.pack(side="bottom", fill="x", pady=5)
+bottom_frame.pack(side="bottom", fill="x", pady=2)
 
 
 def is_safety_locked():
@@ -924,7 +934,6 @@ def toggle_safety_lock(event=None):
 # Schloss-Anzeige über Bilder: gesperrt/aufgeschlossen
 LOCK_CLOSED_IMG_PATH = os.path.join(APP_DIR, "schl-geschlossen.png")
 LOCK_OPEN_IMG_PATH = os.path.join(APP_DIR, "schl-offen.png")
-LOCK_ICON_SCALE = 3
 lock_closed_img = None
 lock_open_img = None
 
@@ -967,7 +976,7 @@ lock_label = tk.Label(
     fg=theme["fg_text"],
     cursor="hand2",
 )
-lock_label.pack(pady=(4, 8))
+lock_label.pack(pady=(2, 4))
 lock_label.bind("<Button-1>", toggle_safety_lock)
 update_lock_display()
 
@@ -995,7 +1004,7 @@ btn_day_reset = tk.Button(
     text="Dayreset",
     command=guarded_day_reset,
 )
-btn_day_reset.pack(pady=5, padx=5)
+btn_day_reset.pack(pady=2, padx=2)
 style_dashboard_button(btn_day_reset)
 
 
@@ -1106,7 +1115,7 @@ btn_config = tk.Button(
     text="Config",
     command=guarded_open_config,
 )
-btn_config.pack(pady=5, padx=5)
+btn_config.pack(pady=2, padx=2)
 style_dashboard_button(btn_config)
 
 btn_reset_trip = tk.Button(
@@ -1114,17 +1123,17 @@ btn_reset_trip = tk.Button(
     text="Reset",
     command=guarded_reset_trip,
 )
-btn_reset_trip.pack(pady=5, padx=5)
+btn_reset_trip.pack(pady=2, padx=2)
 style_dashboard_button(btn_reset_trip)
 
 sat_label = tk.Label(
     bottom_frame,
     text="Sat : 0/0",
-    font=("Arial", 14),
+    font=("Arial", 12),
     fg=theme["fg_warning"],
     bg=theme["bg_side"],
 )
-sat_label.pack(pady=5, padx=5)
+sat_label.pack(pady=2, padx=2)
 
 # --- Labels im center_frame ---
 speed_label = tk.Label(
@@ -1210,15 +1219,20 @@ temp_label.grid(row=7, column=0, pady=2)
 right_header = tk.Frame(right_frame, bg=theme["bg_card"])
 right_header.pack(side="top", fill="x", padx=2, pady=(2, 0))
 
-date_label = tk.Label(right_header, text="", font=("Arial", 13), fg=theme["fg_text"], bg=theme["bg_card"])
-date_label.pack(anchor="e", padx=2)
-time_label = tk.Label(right_header, text="", font=("Arial", 13), fg=theme["fg_text"], bg=theme["bg_card"])
-time_label.pack(anchor="e", padx=2, pady=(0, 2))
+date_label = tk.Label(right_header, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_card"])
+date_label.pack(anchor="e", fill="x", padx=4)
+time_label = tk.Label(right_header, text="", font=("Arial", 14), fg=theme["fg_text"], bg=theme["bg_card"])
+time_label.pack(anchor="e", fill="x", padx=4, pady=(0, 4))
 
 fuel_container = tk.Frame(right_frame, bg=theme["bg_card"])
-fuel_container.pack(side="top", fill="both", expand=True, padx=2, pady=(2, 10))
+fuel_container.pack(side="top", fill="both", expand=True, padx=4, pady=(0, 8))
 
-fuel_canvas = tk.Canvas(fuel_container, width=64, bg=theme["bg_card"], highlightthickness=0)
+fuel_canvas = tk.Canvas(
+    fuel_container,
+    width=FUEL_CANVAS_WIDTH,
+    bg=theme["bg_card"],
+    highlightthickness=0,
+)
 fuel_canvas.pack(fill="both", expand=True)
 
 def draw_fuel_bar(level, avg_consumption):
@@ -1362,7 +1376,7 @@ def update_visibility():
 
     # Sat-Anzeige links (pack)
     if config.get("show_sat", True):
-        sat_label.pack(pady=5, padx=5)
+        sat_label.pack(pady=2, padx=2)
     else:
         sat_label.pack_forget()
 
