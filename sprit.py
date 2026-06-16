@@ -30,15 +30,15 @@ K_FACTOR = 36000
 fuel_capacity = 20.0
 reserve_liters = 5.0
 FUEL_DISPLAY_TOGGLE_SECONDS = 2.0
-RIGHT_COLUMN_WIDTH = 100
-FUEL_CANVAS_WIDTH = 92
+RIGHT_COLUMN_WIDTH = 120
+FUEL_CANVAS_WIDTH = 112
 LOCK_ICON_SCALE = 2
 MAX_LOOP_DT_SECONDS = 5.0
 # Nur ohne GPS und ohne bekannte Ø-/Letztgeschwindigkeit (Kaltstart)
 NO_GPS_ASSUMED_SPEED_KMH = 59.5
 
 # --- Version & Update ---
-VERSION = "1.46"
+VERSION = "1.47"
 # URL zu einer Textdatei mit einer Zeile Versionsnummer (z.B. "1.05"). Leer = keine Prüfung.
 VERSION_URL = "https://raw.githubusercontent.com/antaril/Universal-Spritcomputer-Dashboard/main/version.txt"
 UPDATER_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "updater.py")
